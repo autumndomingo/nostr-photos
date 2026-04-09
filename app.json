@@ -25,6 +25,19 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "scheme": "nostr-photos",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Nostr Photos to access your camera",
+          "microphonePermission": "Allow Nostr Photos to access your microphone for video recording",
+          "recordAudioAndroid": true
+        }
+      ]
+    ]
   }
 }
