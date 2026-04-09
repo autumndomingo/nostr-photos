@@ -11,10 +11,12 @@ import {
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 import { bytesToHex } from "nostr-tools/utils";
 import { File, Paths } from "expo-file-system/next";
+import { log } from "./logger";
 
 const BLOSSOM_SERVERS = [
+  { url: "https://upload.iris.to", read: true, write: true },
+  { url: "https://cdn.iris.to", read: true, write: false },
   { url: "https://blossom.primal.net", read: true, write: true },
-  { url: "https://blossom.band", read: true, write: false },
 ];
 
 const ROOT_FILE = new File(Paths.document, "tree-root.json");
@@ -22,16 +24,23 @@ const ROOT_FILE = new File(Paths.document, "tree-root.json");
 // Create a Blossom signer from a Nostr private key
 function createSigner(privateKey: Uint8Array): BlossomSigner {
   return async (draft) => {
-    const event = finalizeEvent(
-      {
-        kind: draft.kind,
-        created_at: draft.created_at,
-        content: draft.content,
-        tags: draft.tags,
-      },
-      privateKey
-    );
-    return event as any;
+    log("[SIGNER] Signing event kind:", draft.kind, "tags:", JSON.stringify(draft.tags));
+    try {
+      const event = finalizeEvent(
+        {
+          kind: draft.kind,
+          created_at: draft.created_at,
+          content: draft.content,
+          tags: draft.tags,
+        },
+        privateKey
+      );
+      log("[SIGNER] Signed OK, event id:", (event as any).id?.slice(0, 16));
+      return event as any;
+    } catch (e: any) {
+      log("[SIGNER] FAILED:", e?.message);
+      throw e;
+    }
   };
 }
 
@@ -45,6 +54,9 @@ export function createHashTree(privateKey: Uint8Array): {
   const blossomStore = new BlossomStore({
     servers: BLOSSOM_SERVERS,
     signer,
+    logger: (entry) => {
+      log(`[BLOSSOM] ${entry.operation} ${entry.hash?.slice(0, 12)}... ${entry.server} ${entry.success ? "OK" : "FAIL"} ${entry.error || ""} ${entry.bytes ? entry.bytes + "b" : ""}`);
+    },
   });
 
   const localStore = new MemoryStore();
@@ -91,8 +103,8 @@ export async function addPhotoToTree(
   fileName: string,
   currentRoot: CID | null
 ): Promise<{ rootCid: CID; fileCid: CID }> {
-  // Store the file (encrypted by default)
-  const { cid: fileCid, size } = await tree.putFile(photoData);
+  // Store the file (unencrypted for now — encryption needs proper Web Crypto)
+  const { cid: fileCid, size } = await tree.putFile(photoData, { unencrypted: true });
 
   let rootCid: CID;
 
@@ -108,19 +120,38 @@ export async function addPhotoToTree(
     );
   } else {
     // Create a new directory with this file
-    const { cid: dirCid } = await tree.putDirectory([
-      { name: fileName, cid: fileCid, size, type: LinkType.File },
-    ]);
+    const { cid: dirCid } = await tree.putDirectory(
+      [{ name: fileName, cid: fileCid, size, type: LinkType.File }],
+      { unencrypted: true }
+    );
     rootCid = dirCid;
   }
 
   // Push all new chunks to Blossom
-  await tree.push(rootCid, blossomStore, { concurrency: 4 });
+  const pushResult = await tree.push(rootCid, blossomStore, {
+    concurrency: 4,
+    onBlock: (hash, status, error) => {
+      const { toHex } = require("@hashtree/core");
+      const h = toHex(hash).slice(0, 12);
+      if (error) {
+        log(`[PUSH] ${h}... ${status}: ${error.message}`);
+      } else {
+        log(`[PUSH] ${h}... ${status}`);
+      }
+    },
+  });
+  console.log(`[PUSH] Done: pushed=${pushResult.pushed} skipped=${pushResult.skipped} failed=${pushResult.failed} bytes=${pushResult.bytes}`);
 
   // Save root locally
   saveRootCID(rootCid);
 
   return { rootCid, fileCid };
+}
+
+// Get the root CID key hex for publishing in Nostr events
+export function getRootKeyHex(rootCid: CID): string | undefined {
+  if (!rootCid.key) return undefined;
+  return toHex(rootCid.key);
 }
 
 // List all photos in the tree
