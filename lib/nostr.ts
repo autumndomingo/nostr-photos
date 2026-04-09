@@ -1,6 +1,7 @@
 import { generateSecretKey, getPublicKey, finalizeEvent } from "nostr-tools/pure";
 import { nsecEncode, npubEncode, decode } from "nostr-tools/nip19";
 import { bytesToHex, hexToBytes } from "nostr-tools/utils";
+import * as nip44 from "nostr-tools/nip44";
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
@@ -89,17 +90,27 @@ export function getPublicKeyHex(privateKey: Uint8Array): string {
 export async function publishMerkleRoot(
   privateKey: Uint8Array,
   rootHash: string,
-  leafCount: number
+  leafCount: number,
+  rootKey?: string
 ): Promise<void> {
+  const pubkeyHex = getPublicKey(privateKey);
+  const tags: string[][] = [
+    ["d", "photos"],
+    ["hash", rootHash],
+  ];
+  if (rootKey) {
+    // Self-encrypt the key using NIP-44 so only we can decrypt it
+    const conversationKey = nip44.v2.utils.getConversationKey(privateKey, pubkeyHex);
+    const selfEncrypted = nip44.v2.encrypt(rootKey, conversationKey);
+    tags.push(["selfEncryptedKey", selfEncrypted]);
+  }
+
   const event = finalizeEvent(
     {
       kind: 30078,
       created_at: Math.floor(Date.now() / 1000),
       content: "",
-      tags: [
-        ["d", "photos"],
-        ["hash", rootHash],
-      ],
+      tags,
     },
     privateKey
   );

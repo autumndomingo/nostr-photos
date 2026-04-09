@@ -21,7 +21,9 @@ import {
   createHashTree,
   addPhotoToTree,
   loadRootCID,
+  getRootKeyHex,
 } from "../lib/hashtree";
+import { log } from "../lib/logger";
 
 type ZoomLevel = 0.5 | 1 | 2 | 3;
 type CameraMode = "photo" | "video";
@@ -155,13 +157,16 @@ export default function CameraScreen() {
     if (!cameraRef.current || taking) return;
     setTaking(true);
     setUploadStatus("Saving...");
+    log("[PHOTO] Taking photo...");
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
       if (!photo) {
+        log("[PHOTO] No photo returned from camera");
         setTaking(false);
         setUploadStatus(null);
         return;
       }
+      log("[PHOTO] Photo taken:", photo.uri);
 
       // Save locally first
       initStorage();
@@ -170,19 +175,20 @@ export default function CameraScreen() {
       const dest = new File(Paths.document, "photos", fileName);
       source.copy(dest);
       setLastMediaUri(dest.uri);
-
       // Upload to Blossom via HashTree
       setUploadStatus("Uploading...");
       const privateKey = await loadPrivateKey();
       if (!privateKey) {
+        log("[PHOTO] No private key found");
         setUploadStatus("No key found");
         return;
       }
 
       const photoBytes = await dest.bytes();
+      log("[PHOTO] Uploading", photoBytes.length, "bytes to Blossom...");
+
       const { tree, blossomStore } = createHashTree(privateKey);
       const currentRoot = loadRootCID();
-
       const { rootCid, fileCid } = await addPhotoToTree(
         tree,
         blossomStore,
@@ -190,11 +196,9 @@ export default function CameraScreen() {
         fileName,
         currentRoot
       );
-
       // Save entry to local photo list
       addPhotoEntry(fileName, fileCid, photoBytes.length);
 
-      // Cache locally by CID hash
       const { toHex } = require("@hashtree/core");
       const cidHash = toHex(fileCid.hash);
       const cached = new File(Paths.document, "photos", `${cidHash}.jpg`);
@@ -207,18 +211,21 @@ export default function CameraScreen() {
 
       // Publish Merkle root to Nostr
       const rootHex = toHex(rootCid.hash);
+      const rootKeyHex = getRootKeyHex(rootCid);
       const entries = loadPhotoEntries();
       try {
-        await publishMerkleRoot(privateKey, rootHex, entries.length);
+        await publishMerkleRoot(privateKey, rootHex, entries.length, rootKeyHex);
+        log("[PHOTO] Done! Root:", rootHex.slice(0, 16) + "...", "Photos:", entries.length);
         setUploadStatus("Done! ✓");
       } catch (pubErr: any) {
+        log("[PHOTO] Publish failed:", pubErr?.message);
         setUploadStatus("Saved, publish failed");
-        console.warn("Publish failed:", pubErr?.message);
       }
 
       setTimeout(() => setUploadStatus(null), 1500);
     } catch (e: any) {
-      console.warn("Upload failed:", e?.message, e?.stack);
+      log("[PHOTO] UPLOAD ERROR:", e?.message);
+      log("[PHOTO] Stack:", e?.stack);
       setUploadStatus(e?.message?.slice(0, 40) || "Upload failed");
       setTimeout(() => setUploadStatus(null), 4000);
     } finally {
