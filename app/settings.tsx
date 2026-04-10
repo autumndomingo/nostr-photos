@@ -14,21 +14,22 @@ import { useRouter } from "expo-router";
 import { loadPrivateKey, deletePrivateKey, getNpub } from "../lib/nostr";
 import { clearAllData } from "../lib/storage";
 import {
-  importSelectedPhotosFromPicker,
-  importPhotoLibrary,
-  type ImportLibraryMode,
   type ImportLibraryProgress,
   type ImportLibraryResult,
 } from "../lib/photo-library-import";
-import { ensureSequentialPhotoLibrary } from "../lib/photo-sync";
+import {
+  getPhotoImportSnapshot,
+  startAllPhotosImportJob,
+  startSelectedPhotosImportJob,
+  subscribeToPhotoImport,
+} from "../lib/photo-import-manager";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const [npub, setNpub] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState<ImportLibraryProgress | null>(null);
+  const [importSnapshot, setImportSnapshot] = useState(getPhotoImportSnapshot());
 
   useEffect(() => {
     loadPrivateKey().then((key) => {
@@ -36,6 +37,10 @@ export default function SettingsScreen() {
         setNpub(getNpub(key));
       }
       setLoading(false);
+    });
+
+    return subscribeToPhotoImport((snapshot) => {
+      setImportSnapshot(snapshot);
     });
   }, []);
 
@@ -90,8 +95,6 @@ export default function SettingsScreen() {
         result.reason ||
           `Imported ${result.imported} photos, skipped ${result.skipped}, failed ${result.failed}.`
       );
-    } else if (result.status === "completed") {
-      Alert.alert("uplaoding done");
     }
   }
 
@@ -124,7 +127,10 @@ export default function SettingsScreen() {
     }
   }
 
-  async function startAllPhotosImport(mode: ImportLibraryMode) {
+  const importing = importSnapshot.active;
+  const importProgress = importSnapshot.progress;
+
+  async function startAllPhotosImport() {
     if (importing) return;
 
     if (Platform.OS !== "ios") {
@@ -132,43 +138,13 @@ export default function SettingsScreen() {
       return;
     }
 
-    const privateKey = await loadPrivateKey();
-    if (!privateKey) {
-      Alert.alert("No Account", "Log in again before importing your library.");
-      return;
-    }
-
-    setImporting(true);
-    setImportProgress({
-      phase: "checking-permissions",
-      total: 0,
-      processed: 0,
-      imported: 0,
-      skipped: 0,
-      failed: 0,
-    });
-
     try {
-      await ensureSequentialPhotoLibrary(privateKey);
-
-      const result = await importPhotoLibrary(privateKey, {
-        mode,
-        onProgress: setImportProgress,
-      });
-      handleImportResult(result);
+      const result = await startAllPhotosImportJob();
+      if (result) {
+        handleImportResult(result);
+      }
     } catch (error: any) {
       Alert.alert("Import Failed", error?.message || "Could not import your photo library.");
-      setImportProgress((current) =>
-        current
-          ? {
-              ...current,
-              phase: "error",
-              message: error?.message || "Could not import your photo library.",
-            }
-          : null
-      );
-    } finally {
-      setImporting(false);
     }
   }
 
@@ -180,45 +156,16 @@ export default function SettingsScreen() {
       return;
     }
 
-    const privateKey = await loadPrivateKey();
-    if (!privateKey) {
-      Alert.alert("No Account", "Log in again before importing your library.");
-      return;
-    }
-
-    setImporting(true);
-    setImportProgress({
-      phase: "selecting",
-      total: 0,
-      processed: 0,
-      imported: 0,
-      skipped: 0,
-      failed: 0,
-      message: "Choose photos, then tap Done.",
-    });
-
     try {
-      const result = await importSelectedPhotosFromPicker(
-        privateKey,
-        setImportProgress
-      );
-      handleImportResult(result);
+      const result = await startSelectedPhotosImportJob();
+      if (result) {
+        handleImportResult(result);
+      }
     } catch (error: any) {
       Alert.alert(
         "Import Failed",
         error?.message || "Could not import the selected photos."
       );
-      setImportProgress((current) =>
-        current
-          ? {
-              ...current,
-              phase: "error",
-              message: error?.message || "Could not import the selected photos.",
-            }
-          : null
-      );
-    } finally {
-      setImporting(false);
     }
   }
 
@@ -243,7 +190,7 @@ export default function SettingsScreen() {
         if (buttonIndex === 0) {
           void startSelectedPhotosImport();
         } else if (buttonIndex === 1) {
-          void startAllPhotosImport("all");
+          void startAllPhotosImport();
         }
       }
     );

@@ -2,12 +2,17 @@ import "../lib/fetch-polyfill";
 import "../lib/crypto-polyfill";
 import "react-native-get-random-values";
 import { useEffect } from "react";
+import { Alert, AppState } from "react-native";
 import { Stack } from "expo-router";
 import {
   loadPrivateKey,
   retryPendingMerkleRootPublish,
 } from "../lib/nostr";
 import { ensureSequentialPhotoLibrary } from "../lib/photo-sync";
+import {
+  resumePendingPhotoImport,
+  subscribeToPhotoImport,
+} from "../lib/photo-import-manager";
 
 export default function RootLayout() {
   useEffect(() => {
@@ -19,6 +24,25 @@ export default function RootLayout() {
         }
       })
       .catch(() => {});
+
+    resumePendingPhotoImport().catch(() => {});
+
+    const appStateSubscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        resumePendingPhotoImport().catch(() => {});
+      }
+    });
+
+    const unsubscribeImport = subscribeToPhotoImport((snapshot) => {
+      if (snapshot.result?.status === "completed" && !snapshot.active) {
+        Alert.alert("uplaoding done");
+      }
+    });
+
+    return () => {
+      appStateSubscription.remove();
+      unsubscribeImport();
+    };
   }, []);
 
   return (

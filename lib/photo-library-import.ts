@@ -11,6 +11,13 @@ const IMPORT_PUBLISH_BATCH_SIZE = 10;
 const IMPORT_PAGE_SIZE = 200;
 
 export type ImportLibraryMode = "selected" | "all";
+export type SelectedPhotoImportAsset = {
+  uri: string;
+  assetId?: string;
+  fileName?: string;
+  mimeType?: string;
+  capturedAt?: number;
+};
 
 export type ImportLibraryPhase =
   | "checking-permissions"
@@ -77,9 +84,31 @@ function getCapturedAtFromExif(exif?: Record<string, any> | null): number | unde
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-async function importSelectedPhotoAssets(
+async function resolveSelectedAssetUri(asset: SelectedPhotoImportAsset): Promise<string> {
+  const directUri = asset.uri;
+  try {
+    const directFile = new File(directUri);
+    if (directFile.exists) {
+      return directUri;
+    }
+  } catch {}
+
+  if (!asset.assetId) {
+    throw new Error("Selected photo file is no longer available.");
+  }
+
+  const assetInfo = await MediaLibrary.getAssetInfoAsync(asset.assetId, {
+    shouldDownloadFromNetwork: true,
+  });
+  if (!assetInfo.localUri) {
+    throw new Error("Could not restore selected photo from the library.");
+  }
+  return assetInfo.localUri;
+}
+
+export async function importSelectedPhotoAssets(
   privateKey: Uint8Array,
-  pickedAssets: ImagePicker.ImagePickerAsset[],
+  pickedAssets: SelectedPhotoImportAsset[],
   onProgress?: (progress: ImportLibraryProgress) => void
 ): Promise<ImportLibraryResult> {
   let processed = 0;
@@ -110,11 +139,12 @@ async function importSelectedPhotoAssets(
     });
 
     try {
-      const bytes = await new File(asset.uri).bytes();
+      const selectedUri = await resolveSelectedAssetUri(asset);
+      const bytes = await new File(selectedUri).bytes();
       const ingestResult = await ingestPhotoBytes(privateKey, bytes, {
-        capturedAt: getCapturedAtFromExif(asset.exif) || Date.now(),
+        capturedAt: asset.capturedAt || Date.now(),
         sourceAssetId: asset.assetId || undefined,
-        extension: asset.fileName || asset.mimeType || asset.uri,
+        extension: asset.fileName || asset.mimeType || selectedUri,
         publishToNostr: false,
       });
 
@@ -195,20 +225,11 @@ async function importSelectedPhotoAssets(
   };
 }
 
-export async function importSelectedPhotosFromPicker(
-  privateKey: Uint8Array,
+export async function pickSelectedPhotosForImport(
   onProgress?: (progress: ImportLibraryProgress) => void
-): Promise<ImportLibraryResult> {
+): Promise<SelectedPhotoImportAsset[] | null> {
   if (Platform.OS !== "ios") {
-    return {
-      status: "unsupported",
-      total: 0,
-      processed: 0,
-      imported: 0,
-      skipped: 0,
-      failed: 0,
-      reason: "Selected-photo import is iOS-only for now.",
-    };
+    return null;
   }
 
   emitProgress(onProgress, {
@@ -233,6 +254,24 @@ export async function importSelectedPhotosFromPicker(
   });
 
   if (pickerResult.canceled || !pickerResult.assets || pickerResult.assets.length === 0) {
+    return null;
+  }
+
+  return pickerResult.assets.map((asset) => ({
+    uri: asset.uri,
+    assetId: asset.assetId || undefined,
+    fileName: asset.fileName || undefined,
+    mimeType: asset.mimeType || undefined,
+    capturedAt: getCapturedAtFromExif(asset.exif) || undefined,
+  }));
+}
+
+export async function importSelectedPhotosFromPicker(
+  privateKey: Uint8Array,
+  onProgress?: (progress: ImportLibraryProgress) => void
+): Promise<ImportLibraryResult> {
+  const pickedAssets = await pickSelectedPhotosForImport(onProgress);
+  if (!pickedAssets) {
     emitProgress(onProgress, {
       phase: "cancelled",
       total: 0,
@@ -252,7 +291,7 @@ export async function importSelectedPhotosFromPicker(
     };
   }
 
-  return await importSelectedPhotoAssets(privateKey, pickerResult.assets, onProgress);
+  return await importSelectedPhotoAssets(privateKey, pickedAssets, onProgress);
 }
 
 async function loadAccessiblePhotoAssets(): Promise<MediaLibrary.Asset[]> {
