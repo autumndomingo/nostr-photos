@@ -103,8 +103,8 @@ export async function addPhotoToTree(
   fileName: string,
   currentRoot: CID | null
 ): Promise<{ rootCid: CID; fileCid: CID }> {
-  // Store the file (unencrypted for now — encryption needs proper Web Crypto)
-  const { cid: fileCid, size } = await tree.putFile(photoData, { unencrypted: true });
+  // Store the file (encrypted by default with CHK)
+  const { cid: fileCid, size } = await tree.putFile(photoData);
 
   let rootCid: CID;
 
@@ -120,10 +120,9 @@ export async function addPhotoToTree(
     );
   } else {
     // Create a new directory with this file
-    const { cid: dirCid } = await tree.putDirectory(
-      [{ name: fileName, cid: fileCid, size, type: LinkType.File }],
-      { unencrypted: true }
-    );
+    const { cid: dirCid } = await tree.putDirectory([
+      { name: fileName, cid: fileCid, size, type: LinkType.File },
+    ]);
     rootCid = dirCid;
   }
 
