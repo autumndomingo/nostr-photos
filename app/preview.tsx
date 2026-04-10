@@ -5,13 +5,16 @@ import {
   StyleSheet,
 } from "react-native";
 import { Image } from "expo-image";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
+import { useFastRoutes, usePrefetchRoutes } from "../lib/use-fast-routes";
 import { useTapGuard } from "../lib/use-tap-guard";
 
 export default function PreviewScreen() {
   const { uri } = useLocalSearchParams<{ uri: string }>();
-  const router = useRouter();
+  const { prefetchRoute, replaceWith } = useFastRoutes();
   const guardTap = useTapGuard(180);
+
+  usePrefetchRoutes(["/camera"]);
 
   return (
     <View style={styles.container}>
@@ -24,14 +27,16 @@ export default function PreviewScreen() {
       <View style={styles.buttonRow}>
         <TouchableOpacity
           style={styles.button}
-          onPress={() => guardTap(() => router.replace("/camera"))}
+          onPressIn={() => prefetchRoute("/camera")}
+          onPress={() => guardTap(() => replaceWith("/camera"))}
         >
           <Text style={styles.buttonText}>Take Another</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.button, styles.doneButton]}
-          onPress={() => guardTap(() => router.replace("/camera"))}
+          onPressIn={() => prefetchRoute("/camera")}
+          onPress={() => guardTap(() => replaceWith("/camera"))}
         >
           <Text style={styles.buttonText}>Done</Text>
         </TouchableOpacity>

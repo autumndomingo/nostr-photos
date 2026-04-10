@@ -1,4 +1,4 @@
-import { useState, useEffect, startTransition } from "react";
+import { memo, useDeferredValue, useEffect, useState, startTransition } from "react";
 import {
   View,
   TouchableOpacity,
@@ -14,6 +14,7 @@ import {
   subscribeToPhotoEntries,
   getPhotoDisplayUri,
 } from "../lib/storage";
+import { usePrefetchRoutes } from "../lib/use-fast-routes";
 import { useSmartBack } from "../lib/use-smart-back";
 import { useTapGuard } from "../lib/use-tap-guard";
 
@@ -22,10 +23,24 @@ const NUM_COLUMNS = 3;
 const TILE_GAP = 2;
 const TILE_SIZE = (SCREEN_WIDTH - TILE_GAP * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
 
+const LibraryTile = memo(
+  function LibraryTile({ uri }: { uri: string }) {
+    return (
+      <TouchableOpacity style={styles.tile}>
+        <Image source={{ uri }} style={styles.tileImage} />
+      </TouchableOpacity>
+    );
+  },
+  (previous, next) => previous.uri === next.uri
+);
+
 export default function LibraryScreen() {
   const smartBack = useSmartBack("/camera");
   const [photos, setPhotos] = useState<PhotoEntry[]>(() => loadPhotoEntries());
+  const deferredPhotos = useDeferredValue(photos);
   const guardTap = useTapGuard(180);
+
+  usePrefetchRoutes(["/camera"]);
 
   useEffect(() => {
     return subscribeToPhotoEntries((entries) => {
@@ -38,7 +53,7 @@ export default function LibraryScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => guardTap(smartBack)}>
+        <TouchableOpacity hitSlop={10} onPress={() => guardTap(smartBack)}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>All Photos</Text>
@@ -46,7 +61,7 @@ export default function LibraryScreen() {
       </View>
 
       <FlatList
-        data={photos}
+        data={deferredPhotos}
         numColumns={NUM_COLUMNS}
         initialNumToRender={24}
         maxToRenderPerBatch={24}
@@ -58,12 +73,7 @@ export default function LibraryScreen() {
           <Text style={styles.emptyText}>No photos yet.</Text>
         }
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.tile}>
-            <Image
-              source={{ uri: getPhotoDisplayUri(item) }}
-              style={styles.tileImage}
-            />
-          </TouchableOpacity>
+          <LibraryTile uri={getPhotoDisplayUri(item)} />
         )}
       />
     </View>

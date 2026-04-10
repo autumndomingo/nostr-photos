@@ -22,14 +22,18 @@ import {
   saveSessionPrivateKey,
   subscribeToSession,
 } from "../lib/session-store";
+import { useFastRoutes, usePrefetchRoutes } from "../lib/use-fast-routes";
 import { useTapGuard } from "../lib/use-tap-guard";
 
 export default function WelcomeScreen() {
   const router = useRouter();
+  const { prefetchRoute } = useFastRoutes();
   const [nsecInput, setNsecInput] = useState("");
   const [session, setSession] = useState(getSessionSnapshot());
   const [authBusy, setAuthBusy] = useState(false);
   const guardTap = useTapGuard();
+
+  usePrefetchRoutes(["/camera"]);
 
   useEffect(() => {
     ensureSessionLoaded().catch(() => {});
@@ -96,6 +100,7 @@ export default function WelcomeScreen() {
 
         <TouchableOpacity
           style={[styles.button, authBusy && styles.buttonDisabled]}
+          onPressIn={() => prefetchRoute("/camera")}
           onPress={() => guardTap(() => void handleCreateAccount())}
           disabled={authBusy}
         >
@@ -127,6 +132,7 @@ export default function WelcomeScreen() {
             styles.secondaryButton,
             authBusy && styles.secondaryButtonDisabled,
           ]}
+          onPressIn={() => prefetchRoute("/camera")}
           onPress={() => guardTap(() => void handleLogin())}
           disabled={authBusy}
         >

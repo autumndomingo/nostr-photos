@@ -17,6 +17,7 @@ export type PhotoEntry = {
 
 const SEQUENTIAL_PHOTO_NAME_RE = /^photo_(\d{6,})\.[a-z0-9]+$/i;
 const PHOTO_DB_STORAGE_KEY = "nostr_photos_photo_db";
+let storageInitialized = Platform.OS === "web";
 let photoEntriesCache: PhotoEntry[] | null = null;
 const photoEntryListeners = new Set<(entries: PhotoEntry[]) => void>();
 const latestPhotoEntryListeners = new Set<(entry: PhotoEntry | null) => void>();
@@ -32,13 +33,15 @@ function getPhotoDbFile(): File {
 }
 
 export function initStorage(): void {
-  if (Platform.OS === "web") {
+  if (storageInitialized) {
     return;
   }
+
   const photosDir = getPhotosDir();
   if (!photosDir.exists) {
     photosDir.create({ intermediates: true });
   }
+  storageInitialized = true;
 }
 
 function readStoredPhotoEntriesText(): string | null {
@@ -194,6 +197,7 @@ export function clearAllData(): void {
     const photosDir = getPhotosDir();
     if (photoDbFile.exists) photoDbFile.delete();
     if (photosDir.exists) photosDir.delete();
+    storageInitialized = false;
   }
   photoEntriesCache = [];
   photoUriCache.clear();
@@ -354,10 +358,7 @@ export function getPhotoDisplayUri(entry: PhotoEntry): string {
     return remoteUri;
   }
 
-  const localFile = getLocalCachePathForEntry(entry);
-  const uri = localFile.exists
-    ? localFile.uri
-    : `https://blossom.primal.net/${entry.cidHash}`;
+  const uri = getLocalCachePathForEntry(entry).uri;
   photoUriCache.set(entry.cidHash, uri);
   return uri;
 }

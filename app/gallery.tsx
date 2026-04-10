@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, startTransition } from "react";
+import { memo, useDeferredValue, useEffect, useRef, useState, startTransition } from "react";
 import {
   View,
   TouchableOpacity,
@@ -12,7 +12,6 @@ import {
   Platform,
 } from "react-native";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
 import {
   loadPhotoEntries,
   PhotoEntry,
@@ -20,6 +19,7 @@ import {
   getPhotoDisplayUri,
 } from "../lib/storage";
 import { log } from "../lib/logger";
+import { useFastRoutes, usePrefetchRoutes } from "../lib/use-fast-routes";
 import { useSmartBack } from "../lib/use-smart-back";
 import { useTapGuard } from "../lib/use-tap-guard";
 
@@ -29,11 +29,52 @@ const THUMB_WIDTH = 30;
 const THUMB_GAP = 2;
 const THUMB_TOTAL = THUMB_WIDTH + THUMB_GAP;
 
+const GallerySlide = memo(
+  function GallerySlide({
+    uri,
+    onPress,
+  }: {
+    uri: string;
+    onPress: () => void;
+  }) {
+    return (
+      <Pressable style={styles.slide} onPress={onPress}>
+        <Image source={{ uri }} style={styles.image} contentFit="contain" />
+      </Pressable>
+    );
+  },
+  (previous, next) => previous.uri === next.uri
+);
+
+const GalleryThumb = memo(
+  function GalleryThumb({
+    uri,
+    isActive,
+    onPress,
+  }: {
+    uri: string;
+    isActive: boolean;
+    onPress: () => void;
+  }) {
+    return (
+      <TouchableOpacity
+        onPress={onPress}
+        style={[styles.thumb, isActive && styles.thumbActive]}
+      >
+        <Image source={{ uri }} style={styles.thumbImage} />
+      </TouchableOpacity>
+    );
+  },
+  (previous, next) =>
+    previous.uri === next.uri && previous.isActive === next.isActive
+);
+
 export default function GalleryScreen() {
-  const router = useRouter();
+  const { navigateTo, prefetchRoute } = useFastRoutes();
   const smartBack = useSmartBack("/camera");
   const useNativeDriver = Platform.OS !== "web";
   const [photos, setPhotos] = useState<PhotoEntry[]>(() => loadPhotoEntries());
+  const deferredPhotos = useDeferredValue(photos);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showUI, setShowUI] = useState(true);
   const mainListRef = useRef<FlatList>(null);
@@ -45,7 +86,9 @@ export default function GalleryScreen() {
   const readyLoggedRef = useRef(false);
   const guardTap = useTapGuard(180);
 
-  photosRef.current = photos;
+  usePrefetchRoutes(["/camera", "/library"]);
+
+  photosRef.current = deferredPhotos;
   currentIndexRef.current = currentIndex;
 
   useEffect(() => {
@@ -61,15 +104,15 @@ export default function GalleryScreen() {
   }, []);
 
   useEffect(() => {
-    if (photos.length === 0) {
+    if (deferredPhotos.length === 0) {
       setCurrentIndex(0);
       return;
     }
 
-    if (currentIndex >= photos.length) {
-      setCurrentIndex(photos.length - 1);
+    if (currentIndex >= deferredPhotos.length) {
+      setCurrentIndex(deferredPhotos.length - 1);
     }
-  }, [currentIndex, photos.length]);
+  }, [currentIndex, deferredPhotos.length]);
 
   useEffect(() => {
     if (readyLoggedRef.current) {
@@ -79,9 +122,9 @@ export default function GalleryScreen() {
     readyLoggedRef.current = true;
     log(
       `[NAV] Gallery ready in ${Date.now() - mountedAtRef.current}ms`,
-      `photos=${photos.length}`
+      `photos=${deferredPhotos.length}`
     );
-  }, [photos.length]);
+  }, [deferredPhotos.length]);
 
   function jumpToPhoto(index: number) {
     const total = photosRef.current.length;
@@ -159,7 +202,7 @@ export default function GalleryScreen() {
 
   return (
     <View style={styles.container}>
-      {photos.length > 0 ? (
+      {deferredPhotos.length > 0 ? (
         <Animated.View
           style={[
             styles.content,
@@ -173,7 +216,7 @@ export default function GalleryScreen() {
           {/* Full screen photo viewer */}
           <FlatList
             ref={mainListRef}
-            data={photos}
+            data={deferredPhotos}
             horizontal
             pagingEnabled
             initialNumToRender={1}
@@ -190,13 +233,7 @@ export default function GalleryScreen() {
               index,
             })}
             renderItem={({ item }) => (
-              <Pressable style={styles.slide} onPress={toggleUI}>
-                <Image
-                  source={{ uri: getPhotoDisplayUri(item) }}
-                  style={styles.image}
-                  contentFit="contain"
-                />
-              </Pressable>
+              <GallerySlide uri={getPhotoDisplayUri(item)} onPress={toggleUI} />
             )}
           />
 
@@ -205,11 +242,13 @@ export default function GalleryScreen() {
             style={[styles.topBar, { opacity: uiOpacity }]}
             pointerEvents={showUI ? "auto" : "none"}
           >
-            <TouchableOpacity onPress={() => guardTap(smartBack)}>
+            <TouchableOpacity hitSlop={10} onPress={() => guardTap(smartBack)}>
               <Text style={styles.backText}>‹</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => guardTap(() => router.navigate("/library"))}
+              hitSlop={10}
+              onPressIn={() => prefetchRoute("/library")}
+              onPress={() => guardTap(() => navigateTo("/library"))}
             >
               <Text style={styles.libraryText}>All Photos</Text>
             </TouchableOpacity>
@@ -222,7 +261,7 @@ export default function GalleryScreen() {
           >
             <FlatList
               ref={thumbListRef}
-              data={photos}
+              data={deferredPhotos}
               horizontal
               initialNumToRender={18}
               maxToRenderPerBatch={18}
@@ -236,7 +275,10 @@ export default function GalleryScreen() {
                 const centerIndex = Math.round(
                   (offset + SCREEN_WIDTH / 2) / THUMB_TOTAL
                 );
-                const clamped = Math.max(0, Math.min(centerIndex, photos.length - 1));
+                const clamped = Math.max(
+                  0,
+                  Math.min(centerIndex, deferredPhotos.length - 1)
+                );
                 jumpToPhoto(clamped);
               }}
               onMomentumScrollEnd={(e) => {
@@ -244,25 +286,21 @@ export default function GalleryScreen() {
                 const centerIndex = Math.round(
                   (offset + SCREEN_WIDTH / 2) / THUMB_TOTAL
                 );
-                const clamped = Math.max(0, Math.min(centerIndex, photos.length - 1));
+                const clamped = Math.max(
+                  0,
+                  Math.min(centerIndex, deferredPhotos.length - 1)
+                );
                 jumpToPhoto(clamped);
               }}
               renderItem={({ item, index }) => (
-                <TouchableOpacity
+                <GalleryThumb
+                  uri={getPhotoDisplayUri(item)}
+                  isActive={currentIndex === index}
                   onPress={() => {
                     jumpToPhoto(index);
                     syncThumbScroll(index);
                   }}
-                  style={[
-                    styles.thumb,
-                    currentIndex === index && styles.thumbActive,
-                  ]}
-                >
-                  <Image
-                    source={{ uri: getPhotoDisplayUri(item) }}
-                    style={styles.thumbImage}
-                  />
-                </TouchableOpacity>
+                />
               )}
             />
           </Animated.View>

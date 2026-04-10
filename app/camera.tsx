@@ -14,7 +14,6 @@ import {
 import { Image } from "expo-image";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { File, Paths } from "expo-file-system/next";
-import { useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import {
   initStorage,
@@ -23,15 +22,16 @@ import {
 } from "../lib/storage";
 import { log } from "../lib/logger";
 import { enqueueCapturedPhotoForIngest } from "../lib/photo-ingest-manager";
+import { useFastRoutes, usePrefetchRoutes } from "../lib/use-fast-routes";
 import { useTapGuard } from "../lib/use-tap-guard";
 
 type ZoomLevel = 0.5 | 1 | 2 | 3;
 type CameraMode = "photo" | "video";
 
 export default function CameraScreen() {
-  const router = useRouter();
   const isFocused = useIsFocused();
   const useNativeDriver = Platform.OS !== "web";
+  const { navigateTo, prefetchRoute } = useFastRoutes();
   const cameraRef = useRef<CameraView>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [taking, setTaking] = useState(false);
@@ -47,6 +47,8 @@ export default function CameraScreen() {
   const guardTap = useTapGuard(180);
 
   const cameraGranted = cameraPermission?.granted ?? false;
+
+  usePrefetchRoutes(["/gallery", "/settings"]);
 
   useEffect(() => {
     if (cameraGranted) {
@@ -254,6 +256,7 @@ export default function CameraScreen() {
       {/* Top bar */}
       <View style={styles.topBar}>
         <TouchableOpacity
+          hitSlop={10}
           onPress={() =>
             guardTap(() => setFlash(flash === "off" ? "on" : "off"))
           }
@@ -270,7 +273,9 @@ export default function CameraScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={() => guardTap(() => router.navigate("/settings"))}
+          hitSlop={10}
+          onPressIn={() => prefetchRoute("/settings")}
+          onPress={() => guardTap(() => navigateTo("/settings"))}
         >
           <Text style={styles.topIcon}>⚙️</Text>
           <Text style={styles.topLabel}>PROFILE</Text>
@@ -329,6 +334,7 @@ export default function CameraScreen() {
         <View style={styles.shutterRow}>
           <TouchableOpacity
             style={styles.flipButton}
+            hitSlop={10}
             onPress={() => guardTap(flipCamera)}
           >
             <Text style={styles.flipIcon}>⟳</Text>
@@ -354,11 +360,13 @@ export default function CameraScreen() {
 
           <TouchableOpacity
             style={styles.galleryCircle}
+            hitSlop={10}
+            onPressIn={() => prefetchRoute("/gallery")}
             onPress={() => {
               if (recording) return;
               guardTap(() => {
                 log("[NAV] Opening gallery");
-                router.navigate("/gallery");
+                navigateTo("/gallery");
               });
             }}
           >

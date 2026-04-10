@@ -10,7 +10,6 @@ import {
   Linking,
   ActionSheetIOS,
 } from "react-native";
-import { useRouter } from "expo-router";
 import { getNsec } from "../lib/nostr";
 import { clearAllData } from "../lib/storage";
 import {
@@ -29,12 +28,13 @@ import {
   getSessionSnapshot,
   subscribeToSession,
 } from "../lib/session-store";
+import { useFastRoutes, usePrefetchRoutes } from "../lib/use-fast-routes";
 import { showToast } from "../lib/toast";
 import { useTapGuard } from "../lib/use-tap-guard";
 import { useSmartBack } from "../lib/use-smart-back";
 
 export default function SettingsScreen() {
-  const router = useRouter();
+  const { prefetchRoute, replaceWith } = useFastRoutes();
   const smartBack = useSmartBack("/camera");
   const [session, setSession] = useState(getSessionSnapshot());
   const [copied, setCopied] = useState(false);
@@ -46,6 +46,8 @@ export default function SettingsScreen() {
     () => (session.privateKey ? getNsec(session.privateKey) : null),
     [session.privateKey]
   );
+
+  usePrefetchRoutes(["/camera", "/"]);
 
   useEffect(() => {
     ensureSessionLoaded().catch(() => {});
@@ -119,7 +121,7 @@ export default function SettingsScreen() {
         style: "destructive",
         onPress: async () => {
           await clearSessionPrivateKey();
-          router.replace("/");
+          replaceWith("/");
         },
       },
     ]);
@@ -281,7 +283,8 @@ export default function SettingsScreen() {
         <Text style={styles.errorText}>No account found.</Text>
         <TouchableOpacity
           style={styles.button}
-          onPress={() => guardTap(() => router.replace("/"))}
+          onPressIn={() => prefetchRoute("/")}
+          onPress={() => guardTap(() => replaceWith("/"))}
         >
           <Text style={styles.buttonText}>Go to Welcome</Text>
         </TouchableOpacity>
@@ -294,6 +297,7 @@ export default function SettingsScreen() {
       <View style={styles.topActions}>
         <TouchableOpacity
           style={styles.backButton}
+          hitSlop={10}
           onPress={() => guardTap(smartBack)}
         >
           <Text style={styles.backText}>‹</Text>
@@ -301,6 +305,7 @@ export default function SettingsScreen() {
         <Text style={styles.topTitle}>Profile</Text>
         <TouchableOpacity
           style={styles.topLogoutButton}
+          onPressIn={() => prefetchRoute("/")}
           onPress={() => guardTap(handleLogout)}
         >
           <Text style={styles.topLogoutText}>Log Out</Text>
