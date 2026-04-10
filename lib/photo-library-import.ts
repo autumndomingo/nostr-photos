@@ -6,6 +6,7 @@ import { ingestPhotoBytes, publishPhotoRoot } from "./photo-sync";
 import { log } from "./logger";
 import { loadPhotoEntries } from "./storage";
 import type { PublishMerkleRootResult } from "./nostr";
+import { normalizePhotoUriForIris } from "./photo-compat";
 
 const IMPORT_PUBLISH_BATCH_SIZE = 10;
 const IMPORT_PAGE_SIZE = 200;
@@ -106,6 +107,24 @@ async function resolveSelectedAssetUri(asset: SelectedPhotoImportAsset): Promise
   return assetInfo.localUri;
 }
 
+async function readImportablePhotoBytes(options: {
+  uri: string;
+  fileName?: string;
+  mimeType?: string;
+}): Promise<{ bytes: Uint8Array; extension: string }> {
+  const normalized = await normalizePhotoUriForIris({
+    uri: options.uri,
+    fileName: options.fileName,
+    mimeType: options.mimeType,
+  });
+
+  const bytes = await new File(normalized.uri).bytes();
+  return {
+    bytes,
+    extension: normalized.extension,
+  };
+}
+
 export async function importSelectedPhotoAssets(
   privateKey: Uint8Array,
   pickedAssets: SelectedPhotoImportAsset[],
@@ -140,11 +159,15 @@ export async function importSelectedPhotoAssets(
 
     try {
       const selectedUri = await resolveSelectedAssetUri(asset);
-      const bytes = await new File(selectedUri).bytes();
+      const { bytes, extension } = await readImportablePhotoBytes({
+        uri: selectedUri,
+        fileName: asset.fileName,
+        mimeType: asset.mimeType,
+      });
       const ingestResult = await ingestPhotoBytes(privateKey, bytes, {
         capturedAt: asset.capturedAt || Date.now(),
         sourceAssetId: asset.assetId || undefined,
-        extension: asset.fileName || asset.mimeType || selectedUri,
+        extension,
         publishToNostr: false,
       });
 
@@ -472,11 +495,14 @@ export async function importPhotoLibrary(
         throw new Error("No local URI returned for this asset");
       }
 
-      const bytes = await new File(localUri).bytes();
+      const { bytes, extension } = await readImportablePhotoBytes({
+        uri: localUri,
+        fileName: asset.filename || assetInfo.filename || localUri,
+      });
       const ingestResult = await ingestPhotoBytes(privateKey, bytes, {
         capturedAt: asset.creationTime || assetInfo.creationTime || Date.now(),
         sourceAssetId: asset.id,
-        extension: asset.filename || localUri,
+        extension,
         publishToNostr: false,
       });
 
