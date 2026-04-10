@@ -117,7 +117,7 @@ export default function GalleryScreen() {
             duration: 200,
             useNativeDriver: true,
           }).start(() => {
-            router.push("/camera");
+            router.back();
           });
         } else {
           // Snap back
@@ -241,7 +241,7 @@ export default function GalleryScreen() {
           <Text style={styles.emptyText}>No photos yet. Go take some!</Text>
           <TouchableOpacity
             style={styles.goBackButton}
-            onPress={() => router.push("/camera")}
+            onPress={() => router.back()}
           >
             <Text style={styles.goBackText}>Open Camera</Text>
           </TouchableOpacity>

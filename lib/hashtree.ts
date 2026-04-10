@@ -82,7 +82,7 @@ export function getHashTree(privateKey: Uint8Array): {
     servers: BLOSSOM_SERVERS,
     signer: createSigner(privateKey),
     logger: (entry) => {
-      if (!entry.success || entry.operation === "put") {
+      if (!entry.success) {
         const serverLabel = entry.server.includes("//")
           ? entry.server.split("//")[1]
           : entry.server;

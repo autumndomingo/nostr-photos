@@ -22,14 +22,14 @@ export default function PreviewScreen() {
       <View style={styles.buttonRow}>
         <TouchableOpacity
           style={styles.button}
-          onPress={() => router.push("/camera")}
+          onPress={() => router.replace("/camera")}
         >
           <Text style={styles.buttonText}>Take Another</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.button, styles.doneButton]}
-          onPress={() => router.push("/camera")}
+          onPress={() => router.replace("/camera")}
         >
           <Text style={styles.buttonText}>Done</Text>
         </TouchableOpacity>
