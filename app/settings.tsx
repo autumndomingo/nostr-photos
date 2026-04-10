@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   ActionSheetIOS,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { loadPrivateKey, deletePrivateKey, getNpub, getNsec } from "../lib/nostr";
+import { getNsec } from "../lib/nostr";
 import { clearAllData } from "../lib/storage";
 import {
   type ImportLibraryProgress,
@@ -23,28 +23,39 @@ import {
   startSelectedPhotosImportJob,
   subscribeToPhotoImport,
 } from "../lib/photo-import-manager";
+import {
+  clearSessionPrivateKey,
+  ensureSessionLoaded,
+  getSessionSnapshot,
+  subscribeToSession,
+} from "../lib/session-store";
+import { useTapGuard } from "../lib/use-tap-guard";
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const [npub, setNpub] = useState<string | null>(null);
-  const [nsec, setNsec] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState(getSessionSnapshot());
   const [copied, setCopied] = useState(false);
   const [secretCopied, setSecretCopied] = useState(false);
   const [importSnapshot, setImportSnapshot] = useState(getPhotoImportSnapshot());
+  const guardTap = useTapGuard();
+  const npub = session.npub;
+  const nsec = useMemo(
+    () => (session.privateKey ? getNsec(session.privateKey) : null),
+    [session.privateKey]
+  );
 
   useEffect(() => {
-    loadPrivateKey().then((key) => {
-      if (key) {
-        setNpub(getNpub(key));
-        setNsec(getNsec(key));
-      }
-      setLoading(false);
+    ensureSessionLoaded().catch(() => {});
+    const unsubscribeSession = subscribeToSession((snapshot) => {
+      setSession(snapshot);
     });
-
-    return subscribeToPhotoImport((snapshot) => {
+    const unsubscribeImport = subscribeToPhotoImport((snapshot) => {
       setImportSnapshot(snapshot);
     });
+    return () => {
+      unsubscribeSession();
+      unsubscribeImport();
+    };
   }, []);
 
   async function handleCopyNpub() {
@@ -104,7 +115,7 @@ export default function SettingsScreen() {
         text: "Log Out",
         style: "destructive",
         onPress: async () => {
-          await deletePrivateKey();
+          await clearSessionPrivateKey();
           router.replace("/");
         },
       },
@@ -253,7 +264,7 @@ export default function SettingsScreen() {
                 : `Importing ${importProgress.processed}/${Math.max(importProgress.total, 1)} photos`
     : null;
 
-  if (loading) {
+  if (!session.resolved) {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color="#7B2FF2" />
@@ -267,7 +278,7 @@ export default function SettingsScreen() {
         <Text style={styles.errorText}>No account found.</Text>
         <TouchableOpacity
           style={styles.button}
-          onPress={() => router.replace("/")}
+          onPress={() => guardTap(() => router.replace("/"))}
         >
           <Text style={styles.buttonText}>Go to Welcome</Text>
         </TouchableOpacity>
@@ -278,14 +289,20 @@ export default function SettingsScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.topActions}>
-        <TouchableOpacity style={styles.topLogoutButton} onPress={handleLogout}>
+        <TouchableOpacity
+          style={styles.topLogoutButton}
+          onPress={() => guardTap(handleLogout)}
+        >
           <Text style={styles.topLogoutText}>Log Out</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Public Key</Text>
-        <TouchableOpacity style={styles.npubRow} onPress={handleCopyNpub}>
+        <TouchableOpacity
+          style={styles.npubRow}
+          onPress={() => guardTap(() => void handleCopyNpub())}
+        >
           <Text style={styles.npub} numberOfLines={1} ellipsizeMode="middle">
             {npub}
           </Text>
@@ -304,7 +321,7 @@ export default function SettingsScreen() {
         <Text style={styles.sectionLabel}>Library Import</Text>
         <TouchableOpacity
           style={[styles.importButton, importing && styles.importButtonDisabled]}
-          onPress={handleImportLibrary}
+          onPress={() => guardTap(handleImportLibrary)}
           disabled={importing}
         >
           <Text style={styles.importButtonText}>
@@ -320,7 +337,10 @@ export default function SettingsScreen() {
 
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Private Key</Text>
-        <TouchableOpacity style={styles.secretButton} onPress={handleCopyNsec}>
+        <TouchableOpacity
+          style={styles.secretButton}
+          onPress={() => guardTap(handleCopyNsec)}
+        >
           <Text style={styles.secretButtonText}>
             {secretCopied ? "Copied nsec" : "Copy nsec for Iris"}
           </Text>
@@ -334,19 +354,21 @@ export default function SettingsScreen() {
 
       <TouchableOpacity
         style={styles.clearButton}
-        onPress={() => {
-          Alert.alert("Clear Photos", "Delete all local photo data?", [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Clear",
-              style: "destructive",
-              onPress: () => {
-                clearAllData();
-                Alert.alert("Done", "Photo data cleared.");
+        onPress={() =>
+          guardTap(() => {
+            Alert.alert("Clear Photos", "Delete all local photo data?", [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Clear",
+                style: "destructive",
+                onPress: () => {
+                  clearAllData();
+                  Alert.alert("Done", "Photo data cleared.");
+                },
               },
-            },
-          ]);
-        }}
+            ]);
+          })
+        }
       >
         <Text style={styles.clearText}>Clear Photo Data</Text>
       </TouchableOpacity>

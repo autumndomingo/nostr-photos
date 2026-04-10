@@ -6,10 +6,12 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useTapGuard } from "../lib/use-tap-guard";
 
 export default function PreviewScreen() {
   const { uri } = useLocalSearchParams<{ uri: string }>();
   const router = useRouter();
+  const guardTap = useTapGuard(180);
 
   return (
     <View style={styles.container}>
@@ -22,14 +24,14 @@ export default function PreviewScreen() {
       <View style={styles.buttonRow}>
         <TouchableOpacity
           style={styles.button}
-          onPress={() => router.replace("/camera")}
+          onPress={() => guardTap(() => router.replace("/camera"))}
         >
           <Text style={styles.buttonText}>Take Another</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.button, styles.doneButton]}
-          onPress={() => router.replace("/camera")}
+          onPress={() => guardTap(() => router.replace("/camera"))}
         >
           <Text style={styles.buttonText}>Done</Text>
         </TouchableOpacity>

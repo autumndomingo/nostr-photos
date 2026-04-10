@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -14,59 +14,65 @@ import {
 import { useRouter } from "expo-router";
 import {
   createAccount,
-  savePrivateKey,
   nsecToPrivateKey,
-  loadPrivateKey,
-  getNpub,
 } from "../lib/nostr";
-import { useEffect } from "react";
+import {
+  ensureSessionLoaded,
+  getSessionSnapshot,
+  saveSessionPrivateKey,
+  subscribeToSession,
+} from "../lib/session-store";
+import { useTapGuard } from "../lib/use-tap-guard";
 
 export default function WelcomeScreen() {
   const router = useRouter();
   const [nsecInput, setNsecInput] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState(getSessionSnapshot());
+  const [authBusy, setAuthBusy] = useState(false);
+  const guardTap = useTapGuard();
 
-  // On mount, check if user already has a key saved
   useEffect(() => {
-    loadPrivateKey().then((key) => {
-      if (key) {
-        // Already logged in — go straight to camera
+    ensureSessionLoaded().catch(() => {});
+    return subscribeToSession((snapshot) => {
+      setSession(snapshot);
+      if (snapshot.privateKey) {
         router.replace("/camera");
-      } else {
-        setLoading(false);
       }
     });
   }, []);
 
   async function handleCreateAccount() {
+    if (authBusy) return;
+    setAuthBusy(true);
     try {
       const account = createAccount();
-      await savePrivateKey(account.privateKey);
-      Alert.alert("Account Created!", `Your public key:\n${account.npub}`);
-      router.replace("/camera");
+      await saveSessionPrivateKey(account.privateKey);
     } catch (e: any) {
       Alert.alert("Error", e.message);
+    } finally {
+      setAuthBusy(false);
     }
   }
 
   async function handleLogin() {
+    if (authBusy) return;
     const trimmed = nsecInput.trim();
     if (!trimmed) {
       Alert.alert("Error", "Please paste your nsec private key.");
       return;
     }
+    setAuthBusy(true);
     try {
       const privateKey = nsecToPrivateKey(trimmed);
-      await savePrivateKey(privateKey);
-      const npub = getNpub(privateKey);
-      Alert.alert("Logged in!", `Your public key:\n${npub}`);
-      router.replace("/camera");
+      await saveSessionPrivateKey(privateKey);
     } catch (e: any) {
       Alert.alert("Invalid Key", "That doesn't look like a valid nsec key.");
+    } finally {
+      setAuthBusy(false);
     }
   }
 
-  if (loading) {
+  if (!session.resolved) {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color="#7B2FF2" />
@@ -88,8 +94,14 @@ export default function WelcomeScreen() {
           Your photos, encrypted and decentralized.
         </Text>
 
-        <TouchableOpacity style={styles.button} onPress={handleCreateAccount}>
-          <Text style={styles.buttonText}>Create New Account</Text>
+        <TouchableOpacity
+          style={[styles.button, authBusy && styles.buttonDisabled]}
+          onPress={() => guardTap(() => void handleCreateAccount())}
+          disabled={authBusy}
+        >
+          <Text style={styles.buttonText}>
+            {authBusy ? "Creating…" : "Create New Account"}
+          </Text>
         </TouchableOpacity>
 
         <View style={styles.divider}>
@@ -110,11 +122,16 @@ export default function WelcomeScreen() {
           secureTextEntry
         />
         <TouchableOpacity
-          style={[styles.button, styles.secondaryButton]}
-          onPress={handleLogin}
+          style={[
+            styles.button,
+            styles.secondaryButton,
+            authBusy && styles.secondaryButtonDisabled,
+          ]}
+          onPress={() => guardTap(() => void handleLogin())}
+          disabled={authBusy}
         >
           <Text style={[styles.buttonText, styles.secondaryButtonText]}>
-            Log In
+            {authBusy ? "Logging In…" : "Log In"}
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -162,6 +179,12 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: "#7B2FF2",
+  },
+  buttonDisabled: {
+    opacity: 0.7,
+  },
+  secondaryButtonDisabled: {
+    opacity: 0.7,
   },
   divider: {
     flexDirection: "row",

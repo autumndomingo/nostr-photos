@@ -22,6 +22,7 @@ import {
 } from "../lib/storage";
 import { log } from "../lib/logger";
 import { enqueueCapturedPhotoForIngest } from "../lib/photo-ingest-manager";
+import { useTapGuard } from "../lib/use-tap-guard";
 
 type ZoomLevel = 0.5 | 1 | 2 | 3;
 type CameraMode = "photo" | "video";
@@ -41,6 +42,7 @@ export default function CameraScreen() {
   const [mode, setMode] = useState<CameraMode>("photo");
   const recordPulse = useRef(new Animated.Value(1)).current;
   const lastTap = useRef<number>(0);
+  const guardTap = useTapGuard(180);
 
   const cameraGranted = cameraPermission?.granted ?? false;
 
@@ -250,7 +252,9 @@ export default function CameraScreen() {
       {/* Top bar */}
       <View style={styles.topBar}>
         <TouchableOpacity
-          onPress={() => setFlash(flash === "off" ? "on" : "off")}
+          onPress={() =>
+            guardTap(() => setFlash(flash === "off" ? "on" : "off"))
+          }
         >
           <Text style={styles.topIcon}>⚡</Text>
           <Text
@@ -263,7 +267,9 @@ export default function CameraScreen() {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => router.navigate("/settings")}>
+        <TouchableOpacity
+          onPress={() => guardTap(() => router.navigate("/settings"))}
+        >
           <Text style={styles.topIcon}>⚙️</Text>
           <Text style={styles.topLabel}>PROFILE</Text>
         </TouchableOpacity>
@@ -275,7 +281,7 @@ export default function CameraScreen() {
           <TouchableOpacity
             key={level}
             style={[styles.zoomPill, zoom === level && styles.zoomPillActive]}
-            onPress={() => setZoom(level)}
+            onPress={() => guardTap(() => setZoom(level))}
           >
             <Text
               style={[
@@ -293,12 +299,24 @@ export default function CameraScreen() {
       <View style={styles.bottomArea}>
         {/* Mode selector */}
         <View style={styles.modeRow}>
-          <TouchableOpacity onPress={() => { if (!recording) setMode("video"); }}>
+          <TouchableOpacity
+            onPress={() => {
+              if (!recording) {
+                guardTap(() => setMode("video"));
+              }
+            }}
+          >
             <Text style={[styles.modeText, mode === "video" && styles.modeActive]}>
               VIDEO
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => { if (!recording) setMode("photo"); }}>
+          <TouchableOpacity
+            onPress={() => {
+              if (!recording) {
+                guardTap(() => setMode("photo"));
+              }
+            }}
+          >
             <Text style={[styles.modeText, mode === "photo" && styles.modeActive]}>
               PHOTO
             </Text>
@@ -309,7 +327,7 @@ export default function CameraScreen() {
         <View style={styles.shutterRow}>
           <TouchableOpacity
             style={styles.flipButton}
-            onPress={flipCamera}
+            onPress={() => guardTap(flipCamera)}
           >
             <Text style={styles.flipIcon}>⟳</Text>
           </TouchableOpacity>
@@ -336,8 +354,10 @@ export default function CameraScreen() {
             style={styles.galleryCircle}
             onPress={() => {
               if (recording) return;
-              log("[NAV] Opening gallery");
-              router.navigate("/gallery");
+              guardTap(() => {
+                log("[NAV] Opening gallery");
+                router.navigate("/gallery");
+              });
             }}
           >
             {lastMediaUri ? (

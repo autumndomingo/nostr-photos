@@ -5,7 +5,6 @@ import { useEffect } from "react";
 import { Alert, AppState } from "react-native";
 import { Stack } from "expo-router";
 import {
-  loadPrivateKey,
   retryPendingMerkleRootPublish,
 } from "../lib/nostr";
 import {
@@ -19,6 +18,7 @@ import {
 import { resumePendingPhotoRootRemoteSync } from "../lib/photo-remote-sync";
 import { resumePendingPhotoIngest } from "../lib/photo-ingest-manager";
 import { scheduleAfterInteractions } from "../lib/cooperative";
+import { ensureSessionLoaded } from "../lib/session-store";
 
 export default function RootLayout() {
   useEffect(() => {
@@ -38,7 +38,8 @@ export default function RootLayout() {
     };
 
     const initialize = async () => {
-      const privateKey = await loadPrivateKey().catch(() => null);
+      const session = await ensureSessionLoaded().catch(() => null);
+      const privateKey = session?.privateKey ?? null;
 
       deferTask(500, () => {
         resumePendingPhotoIngest().catch(() => {});

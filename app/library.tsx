@@ -15,6 +15,7 @@ import {
   subscribeToPhotoEntries,
   getPhotoDisplayUri,
 } from "../lib/storage";
+import { useTapGuard } from "../lib/use-tap-guard";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const NUM_COLUMNS = 3;
@@ -24,6 +25,7 @@ const TILE_SIZE = (SCREEN_WIDTH - TILE_GAP * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
 export default function LibraryScreen() {
   const router = useRouter();
   const [photos, setPhotos] = useState<PhotoEntry[]>(() => loadPhotoEntries());
+  const guardTap = useTapGuard(180);
 
   useEffect(() => {
     return subscribeToPhotoEntries((entries) => {
@@ -36,7 +38,7 @@ export default function LibraryScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity onPress={() => guardTap(() => router.back())}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>All Photos</Text>

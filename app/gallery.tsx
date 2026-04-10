@@ -19,6 +19,7 @@ import {
   getPhotoDisplayUri,
 } from "../lib/storage";
 import { log } from "../lib/logger";
+import { useTapGuard } from "../lib/use-tap-guard";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const THUMB_HEIGHT = 40;
@@ -38,6 +39,7 @@ export default function GalleryScreen() {
   const uiOpacity = useRef(new Animated.Value(1)).current;
   const mountedAtRef = useRef(Date.now());
   const readyLoggedRef = useRef(false);
+  const guardTap = useTapGuard(180);
 
   photosRef.current = photos;
   currentIndexRef.current = currentIndex;
@@ -136,7 +138,7 @@ export default function GalleryScreen() {
             duration: 200,
             useNativeDriver: true,
           }).start(() => {
-            router.back();
+            guardTap(() => router.back());
           });
         } else {
           // Snap back
@@ -199,10 +201,12 @@ export default function GalleryScreen() {
             style={[styles.topBar, { opacity: uiOpacity }]}
             pointerEvents={showUI ? "auto" : "none"}
           >
-            <TouchableOpacity onPress={() => router.back()}>
+            <TouchableOpacity onPress={() => guardTap(() => router.back())}>
               <Text style={styles.backText}>‹</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.navigate("/library")}>
+            <TouchableOpacity
+              onPress={() => guardTap(() => router.navigate("/library"))}
+            >
               <Text style={styles.libraryText}>All Photos</Text>
             </TouchableOpacity>
           </Animated.View>
@@ -264,7 +268,7 @@ export default function GalleryScreen() {
           <Text style={styles.emptyText}>No photos yet. Go take some!</Text>
           <TouchableOpacity
             style={styles.goBackButton}
-            onPress={() => router.back()}
+            onPress={() => guardTap(() => router.back())}
           >
             <Text style={styles.goBackText}>Open Camera</Text>
           </TouchableOpacity>
