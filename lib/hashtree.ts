@@ -35,6 +35,7 @@ let _fileStore: FileStore | null = null;
 let _blossomStore: BlossomStore | null = null;
 let _tree: HashTree | null = null;
 let _currentPrivateKey: Uint8Array | null = null;
+let treeMutationQueue: Promise<unknown> = Promise.resolve();
 
 function createSigner(privateKey: Uint8Array): BlossomSigner {
   return async (draft) => {
@@ -105,6 +106,15 @@ export function getHashTree(privateKey: Uint8Array): {
   return { tree: _tree, blossomStore: _blossomStore };
 }
 
+function queueTreeMutation<T>(task: () => Promise<T>): Promise<T> {
+  const result = treeMutationQueue.catch(() => {}).then(task);
+  treeMutationQueue = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+}
+
 // Save the root CID locally
 export function saveRootCID(rootCid: CID): void {
   const data = {
@@ -127,46 +137,11 @@ export function loadRootCID(): CID | null {
   }
 }
 
-/**
- * Add a photo to the tree.
- * Because FileStore persists locally, setEntry can always read the
- * previous directory — no Blossom fetch needed for tree operations.
- * Push to Blossom happens after the tree is updated.
- */
-export async function addPhotoToTree(
-  privateKey: Uint8Array,
-  photoData: Uint8Array,
-  fileName: string
-): Promise<{ rootCid: CID; fileCid: CID; remoteSynced: boolean }> {
-  const { tree, blossomStore } = getHashTree(privateKey);
-  const currentRoot = loadRootCID();
-
-  // Store the file (encrypted by default with CHK)
-  const { cid: fileCid, size } = await tree.putFile(photoData);
-
-  let rootCid: CID;
-
-  if (currentRoot) {
-    // Add to existing directory — reads from local FileStore
-    rootCid = await tree.setEntry(
-      currentRoot,
-      [],
-      fileName,
-      fileCid,
-      size,
-      LinkType.File
-    );
-  } else {
-    // First photo — create new directory
-    const { cid: dirCid } = await tree.putDirectory([
-      { name: fileName, cid: fileCid, size, type: LinkType.File },
-    ]);
-    rootCid = dirCid;
-  }
-
-  // Save new root locally
-  saveRootCID(rootCid);
-
+async function pushRootToBlossom(
+  tree: HashTree,
+  blossomStore: BlossomStore,
+  rootCid: CID
+): Promise<boolean> {
   const pushResult = await tree.push(rootCid, blossomStore, {
     concurrency: 4,
     onBlock: (hash, status, error) => {
@@ -180,10 +155,104 @@ export async function addPhotoToTree(
     `[PUSH] Done: pushed=${pushResult.pushed} skipped=${pushResult.skipped} failed=${pushResult.failed}`
   );
 
+  return pushResult.failed === 0 && !pushResult.cancelled;
+}
+
+export async function stageFileInTree(
+  privateKey: Uint8Array,
+  fileData: Uint8Array
+): Promise<{ fileCid: CID; size: number }> {
+  const { tree } = getHashTree(privateKey);
+  const { cid: fileCid, size } = await tree.putFile(fileData);
+  return { fileCid, size };
+}
+
+export async function addFileToTree(
+  privateKey: Uint8Array,
+  fileCid: CID,
+  size: number,
+  fileName: string
+): Promise<{ rootCid: CID; remoteSynced: boolean }> {
+  return queueTreeMutation(async () => {
+    const { tree, blossomStore } = getHashTree(privateKey);
+    const currentRoot = loadRootCID();
+
+    let rootCid: CID;
+
+    if (currentRoot) {
+      rootCid = await tree.setEntry(
+        currentRoot,
+        [],
+        fileName,
+        fileCid,
+        size,
+        LinkType.File
+      );
+    } else {
+      const { cid: dirCid } = await tree.putDirectory([
+        { name: fileName, cid: fileCid, size, type: LinkType.File },
+      ]);
+      rootCid = dirCid;
+    }
+
+    saveRootCID(rootCid);
+
+    return {
+      rootCid,
+      remoteSynced: await pushRootToBlossom(tree, blossomStore, rootCid),
+    };
+  });
+}
+
+export async function rebuildPhotoRoot(
+  privateKey: Uint8Array,
+  files: Array<{ name: string; cid: CID; size: number }>
+): Promise<{ rootCid: CID; remoteSynced: boolean } | null> {
+  if (files.length === 0) return null;
+
+  return queueTreeMutation(async () => {
+    const { tree, blossomStore } = getHashTree(privateKey);
+    const { cid: rootCid } = await tree.putDirectory(
+      files.map((file) => ({
+        name: file.name,
+        cid: file.cid,
+        size: file.size,
+        type: LinkType.File,
+      }))
+    );
+
+    saveRootCID(rootCid);
+
+    return {
+      rootCid,
+      remoteSynced: await pushRootToBlossom(tree, blossomStore, rootCid),
+    };
+  });
+}
+
+/**
+ * Add a photo to the tree.
+ * Because FileStore persists locally, setEntry can always read the
+ * previous directory — no Blossom fetch needed for tree operations.
+ * Push to Blossom happens after the tree is updated.
+ */
+export async function addPhotoToTree(
+  privateKey: Uint8Array,
+  photoData: Uint8Array,
+  fileName: string
+): Promise<{ rootCid: CID; fileCid: CID; remoteSynced: boolean }> {
+  const { fileCid, size } = await stageFileInTree(privateKey, photoData);
+  const { rootCid, remoteSynced } = await addFileToTree(
+    privateKey,
+    fileCid,
+    size,
+    fileName
+  );
+
   return {
     rootCid,
     fileCid,
-    remoteSynced: pushResult.failed === 0 && !pushResult.cancelled,
+    remoteSynced,
   };
 }
 

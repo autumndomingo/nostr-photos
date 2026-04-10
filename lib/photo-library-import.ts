@@ -1,0 +1,312 @@
+import { Platform } from "react-native";
+import { File } from "expo-file-system/next";
+import * as MediaLibrary from "expo-media-library";
+import { ingestPhotoBytes, publishPhotoRoot } from "./photo-sync";
+import { log } from "./logger";
+import { loadPhotoEntries } from "./storage";
+import type { PublishMerkleRootResult } from "./nostr";
+
+const IMPORT_PUBLISH_BATCH_SIZE = 10;
+const IMPORT_PAGE_SIZE = 200;
+
+export type ImportLibraryPhase =
+  | "checking-permissions"
+  | "selecting"
+  | "loading"
+  | "importing"
+  | "publishing"
+  | "complete"
+  | "cancelled"
+  | "error";
+
+export type ImportLibraryProgress = {
+  phase: ImportLibraryPhase;
+  total: number;
+  processed: number;
+  imported: number;
+  skipped: number;
+  failed: number;
+  currentAssetName?: string;
+  accessPrivileges?: "all" | "limited" | "none";
+  message?: string;
+};
+
+export type ImportLibraryResult = {
+  status: "completed" | "cancelled" | "denied" | "failed" | "unsupported";
+  total: number;
+  processed: number;
+  imported: number;
+  skipped: number;
+  failed: number;
+  accessPrivileges?: "all" | "limited" | "none";
+  publishResult?: PublishMerkleRootResult | null;
+  reason?: string;
+};
+
+function emitProgress(
+  onProgress: ((progress: ImportLibraryProgress) => void) | undefined,
+  progress: ImportLibraryProgress
+): void {
+  onProgress?.(progress);
+}
+
+async function loadAccessiblePhotoAssets(): Promise<MediaLibrary.Asset[]> {
+  const assets: MediaLibrary.Asset[] = [];
+  let after: string | undefined;
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const page = await MediaLibrary.getAssetsAsync({
+      first: IMPORT_PAGE_SIZE,
+      after,
+      mediaType: [MediaLibrary.MediaType.photo],
+      sortBy: [[MediaLibrary.SortBy.creationTime, true]],
+    });
+
+    assets.push(...page.assets);
+    hasNextPage = page.hasNextPage;
+    after = page.endCursor || undefined;
+  }
+
+  return assets;
+}
+
+export async function importPhotoLibrary(
+  privateKey: Uint8Array,
+  onProgress?: (progress: ImportLibraryProgress) => void
+): Promise<ImportLibraryResult> {
+  if (Platform.OS !== "ios") {
+    return {
+      status: "unsupported",
+      total: 0,
+      processed: 0,
+      imported: 0,
+      skipped: 0,
+      failed: 0,
+      reason: "Photo library import is iOS-only for now.",
+    };
+  }
+
+  emitProgress(onProgress, {
+    phase: "checking-permissions",
+    total: 0,
+    processed: 0,
+    imported: 0,
+    skipped: 0,
+    failed: 0,
+  });
+
+  let permission = await MediaLibrary.getPermissionsAsync();
+
+  if (!permission.granted) {
+    permission = await MediaLibrary.requestPermissionsAsync();
+  } else if (permission.accessPrivileges === "limited") {
+    emitProgress(onProgress, {
+      phase: "selecting",
+      total: 0,
+      processed: 0,
+      imported: 0,
+      skipped: 0,
+      failed: 0,
+      accessPrivileges: "limited",
+      message: "Choose more photos to import.",
+    });
+
+    try {
+      await MediaLibrary.presentPermissionsPickerAsync(["photo"]);
+      permission = await MediaLibrary.getPermissionsAsync();
+    } catch (error: any) {
+      log("[IMPORT] Limited-library picker unavailable:", error?.message);
+    }
+  }
+
+  const accessPrivileges =
+    permission.accessPrivileges || (permission.granted ? "all" : "none");
+
+  if (!permission.granted) {
+    emitProgress(onProgress, {
+      phase: "cancelled",
+      total: 0,
+      processed: 0,
+      imported: 0,
+      skipped: 0,
+      failed: 0,
+      accessPrivileges,
+    });
+
+    return {
+      status: permission.canAskAgain ? "cancelled" : "denied",
+      total: 0,
+      processed: 0,
+      imported: 0,
+      skipped: 0,
+      failed: 0,
+      accessPrivileges,
+      reason: "Photo library access was not granted.",
+    };
+  }
+
+  emitProgress(onProgress, {
+    phase: "loading",
+    total: 0,
+    processed: 0,
+    imported: 0,
+    skipped: 0,
+    failed: 0,
+    accessPrivileges,
+    message: "Loading your photo library…",
+  });
+
+  const allAssets = await loadAccessiblePhotoAssets();
+  const importedAssetIds = new Set(
+    loadPhotoEntries()
+      .map((entry) => entry.sourceAssetId)
+      .filter((assetId): assetId is string => Boolean(assetId))
+  );
+  const assetsToImport = allAssets.filter((asset) => !importedAssetIds.has(asset.id));
+
+  let processed = 0;
+  let imported = 0;
+  let skipped = 0;
+  let failed = 0;
+  let insertedSinceLastPublish = 0;
+  let lastPublishResult: PublishMerkleRootResult | null = null;
+  let failureReason: string | undefined;
+
+  emitProgress(onProgress, {
+    phase: "importing",
+    total: assetsToImport.length,
+    processed,
+    imported,
+    skipped,
+    failed,
+    accessPrivileges,
+  });
+
+  for (const asset of assetsToImport) {
+    emitProgress(onProgress, {
+      phase: "importing",
+      total: assetsToImport.length,
+      processed,
+      imported,
+      skipped,
+      failed,
+      currentAssetName: asset.filename,
+      accessPrivileges,
+    });
+
+    try {
+      const assetInfo = await MediaLibrary.getAssetInfoAsync(asset, {
+        shouldDownloadFromNetwork: true,
+      });
+      const localUri = assetInfo.localUri;
+
+      if (!localUri) {
+        throw new Error("No local URI returned for this asset");
+      }
+
+      const bytes = await new File(localUri).bytes();
+      const ingestResult = await ingestPhotoBytes(privateKey, bytes, {
+        capturedAt: asset.creationTime || assetInfo.creationTime || Date.now(),
+        sourceAssetId: asset.id,
+        extension: asset.filename || localUri,
+        publishToNostr: false,
+      });
+
+      if (ingestResult.duplicate) {
+        skipped += 1;
+      } else {
+        imported += 1;
+        insertedSinceLastPublish += 1;
+      }
+
+      processed += 1;
+
+      if (!ingestResult.duplicate && !ingestResult.remoteSynced) {
+        failed += 1;
+        failureReason = "A Blossom upload failed before the root could be published.";
+        break;
+      }
+
+      if (insertedSinceLastPublish >= IMPORT_PUBLISH_BATCH_SIZE) {
+        emitProgress(onProgress, {
+          phase: "publishing",
+          total: assetsToImport.length,
+          processed,
+          imported,
+          skipped,
+          failed,
+          currentAssetName: asset.filename,
+          accessPrivileges,
+        });
+
+        lastPublishResult = await publishPhotoRoot(privateKey);
+        insertedSinceLastPublish = 0;
+      }
+    } catch (error: any) {
+      processed += 1;
+      failed += 1;
+      log("[IMPORT] Failed", asset.filename, error?.message || error);
+    }
+  }
+
+  if (!failureReason && insertedSinceLastPublish > 0) {
+    emitProgress(onProgress, {
+      phase: "publishing",
+      total: assetsToImport.length,
+      processed,
+      imported,
+      skipped,
+      failed,
+      accessPrivileges,
+    });
+
+    lastPublishResult = await publishPhotoRoot(privateKey);
+  }
+
+  if (failureReason) {
+    emitProgress(onProgress, {
+      phase: "error",
+      total: assetsToImport.length,
+      processed,
+      imported,
+      skipped,
+      failed,
+      accessPrivileges,
+      message: failureReason,
+    });
+
+    return {
+      status: "failed",
+      total: assetsToImport.length,
+      processed,
+      imported,
+      skipped,
+      failed,
+      accessPrivileges,
+      publishResult: lastPublishResult,
+      reason: failureReason,
+    };
+  }
+
+  emitProgress(onProgress, {
+    phase: "complete",
+    total: assetsToImport.length,
+    processed,
+    imported,
+    skipped,
+    failed,
+    accessPrivileges,
+  });
+
+  return {
+    status: "completed",
+    total: assetsToImport.length,
+    processed,
+    imported,
+    skipped,
+    failed,
+    accessPrivileges,
+    publishResult: lastPublishResult,
+  };
+}

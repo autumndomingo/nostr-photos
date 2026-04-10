@@ -15,17 +15,17 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { File, Paths } from "expo-file-system/next";
 import * as MediaLibrary from "expo-media-library";
 import { useRouter } from "expo-router";
-import { addPhotoEntry, loadPhotoEntries, initStorage } from "../lib/storage";
-import { loadPrivateKey, publishMerkleRoot } from "../lib/nostr";
 import {
-  addPhotoToTree,
-  getRootKeyHex,
-} from "../lib/hashtree";
+  getLocalCachePathForEntry,
+  initStorage,
+  loadPhotoEntries,
+} from "../lib/storage";
+import { loadPrivateKey } from "../lib/nostr";
+import { ingestPhotoBytes } from "../lib/photo-sync";
 import { log } from "../lib/logger";
 
 type ZoomLevel = 0.5 | 1 | 2 | 3;
 type CameraMode = "photo" | "video";
-let uploadQueue: Promise<void> = Promise.resolve();
 
 export default function CameraScreen() {
   const router = useRouter();
@@ -82,7 +82,7 @@ export default function CameraScreen() {
     try {
       const entries = loadPhotoEntries();
       if (entries.length > 0) {
-        const cached = new File(Paths.document, "photos", `${entries[0].cidHash}.jpg`);
+        const cached = getLocalCachePathForEntry(entries[0]);
         if (cached.exists) {
           setLastMediaUri(cached.uri);
         }
@@ -161,89 +161,83 @@ export default function CameraScreen() {
         return;
       }
 
-      // Save locally — this is instant
-      initStorage();
-      const fileName = `photo_${Date.now()}.jpg`;
+      const capturedAt = Date.now();
+      const tempName = `capture_${capturedAt}.jpg`;
       const source = new File(photo.uri);
-      const dest = new File(Paths.document, "photos", fileName);
+      const dest = new File(Paths.cache, tempName);
+      if (dest.exists) {
+        dest.delete();
+      }
       source.copy(dest);
       setLastMediaUri(dest.uri);
 
       // Camera is ready for the next shot immediately
       setTaking(false);
 
-      // Queue uploads so each new root builds on the previous one.
-      uploadInBackground(dest, fileName);
+      uploadInBackground(dest, capturedAt);
     } catch (e: any) {
       log("[PHOTO] Save error:", e?.message);
       setTaking(false);
     }
   }
 
-  async function uploadInBackground(dest: InstanceType<typeof File>, fileName: string) {
-    uploadQueue = uploadQueue
-      .catch(() => {})
-      .then(async () => {
-        try {
-          const privateKey = await loadPrivateKey();
-          if (!privateKey) return;
+  async function uploadInBackground(dest: InstanceType<typeof File>, capturedAt: number) {
+    try {
+      const privateKey = await loadPrivateKey();
+      if (!privateKey) return;
 
-          const photoBytes = await dest.bytes();
-          log("[PHOTO] Uploading", photoBytes.length, "bytes...");
+      const photoBytes = await dest.bytes();
+      log("[PHOTO] Uploading", photoBytes.length, "bytes...");
 
-          const { rootCid, fileCid, remoteSynced } = await addPhotoToTree(
-            privateKey,
-            photoBytes,
-            fileName
-          );
-
-          addPhotoEntry(fileName, fileCid, photoBytes.length);
-
-          const { toHex } = require("@hashtree/core");
-          const cidHash = toHex(fileCid.hash);
-          const cached = new File(Paths.document, "photos", `${cidHash}.jpg`);
-          if (!cached.exists) {
-            dest.copy(cached);
-          }
-          setLastMediaUri(cached.uri);
-
-          if (!remoteSynced) {
-            log("[PHOTO] Blossom sync incomplete; skipping Nostr publish for now");
-            return;
-          }
-
-          const rootHex = toHex(rootCid.hash);
-          const rootKeyHex = getRootKeyHex(rootCid);
-          const entries = loadPhotoEntries();
-          try {
-            const publishResult = await publishMerkleRoot(
-              privateKey,
-              rootHex,
-              entries.length,
-              rootKeyHex
-            );
-            if (publishResult.success) {
-              log(
-                "[PHOTO] Nostr confirmed on",
-                publishResult.confirmedRelays.length,
-                "relay(s)"
-              );
-              log("[PHOTO] Done! Root:", rootHex.slice(0, 16) + "...", "Photos:", entries.length);
-            } else {
-              log(
-                "[PHOTO] Nostr publish pending retry:",
-                `accepted=${publishResult.acceptedRelays.length}`,
-                `confirmed=${publishResult.confirmedRelays.length}`,
-                publishResult.reason || ""
-              );
-            }
-          } catch (pubErr: any) {
-            log("[PHOTO] Publish failed:", pubErr?.message);
-          }
-        } catch (e: any) {
-          log("[PHOTO] Upload error:", e?.message);
-        }
+      const result = await ingestPhotoBytes(privateKey, photoBytes, {
+        capturedAt,
+        extension: "jpg",
+        publishToNostr: true,
       });
+
+      if (dest.exists) {
+        dest.delete();
+      }
+
+      const cached = getLocalCachePathForEntry(result.entry);
+      if (cached.exists) {
+        setLastMediaUri(cached.uri);
+      }
+
+      if (result.duplicate) {
+        log("[PHOTO] Duplicate photo skipped");
+        return;
+      }
+
+      if (!result.remoteSynced) {
+        log("[PHOTO] Blossom sync incomplete; skipping Nostr publish for now");
+        return;
+      }
+
+      const entries = loadPhotoEntries();
+      if (result.publishResult?.success) {
+        log(
+          "[PHOTO] Nostr confirmed on",
+          result.publishResult.confirmedRelays.length,
+          "relay(s)"
+        );
+        log(
+          "[PHOTO] Done! Root:",
+          result.publishResult.rootHash.slice(0, 16) + "...",
+          "Photos:",
+          entries.length
+        );
+      } else if (result.publishResult) {
+        log(
+          "[PHOTO] Nostr publish pending retry:",
+          `accepted=${result.publishResult.acceptedRelays.length}`,
+          `confirmed=${result.publishResult.confirmedRelays.length}`,
+          result.publishResult.reason || ""
+        );
+      }
+    } catch (e: any) {
+      log("[PHOTO] Upload error:", e?.message);
+    }
   }
 
   async function startRecording() {

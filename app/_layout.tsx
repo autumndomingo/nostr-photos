@@ -3,11 +3,22 @@ import "../lib/crypto-polyfill";
 import "react-native-get-random-values";
 import { useEffect } from "react";
 import { Stack } from "expo-router";
-import { retryPendingMerkleRootPublish } from "../lib/nostr";
+import {
+  loadPrivateKey,
+  retryPendingMerkleRootPublish,
+} from "../lib/nostr";
+import { ensureSequentialPhotoLibrary } from "../lib/photo-sync";
 
 export default function RootLayout() {
   useEffect(() => {
     retryPendingMerkleRootPublish().catch(() => {});
+    loadPrivateKey()
+      .then((privateKey) => {
+        if (privateKey) {
+          return ensureSequentialPhotoLibrary(privateKey);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   return (

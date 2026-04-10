@@ -7,16 +7,24 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { loadPrivateKey, deletePrivateKey, getNpub } from "../lib/nostr";
 import { clearAllData } from "../lib/storage";
+import {
+  importPhotoLibrary,
+  type ImportLibraryProgress,
+} from "../lib/photo-library-import";
+import { ensureSequentialPhotoLibrary } from "../lib/photo-sync";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const [npub, setNpub] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportLibraryProgress | null>(null);
 
   useEffect(() => {
     loadPrivateKey().then((key) => {
@@ -56,6 +64,105 @@ export default function SettingsScreen() {
       },
     ]);
   }
+
+  async function handleImportLibrary() {
+    if (importing) return;
+
+    if (Platform.OS !== "ios") {
+      Alert.alert("Unavailable", "Library import is iPhone-only for now.");
+      return;
+    }
+
+    const privateKey = await loadPrivateKey();
+    if (!privateKey) {
+      Alert.alert("No Account", "Log in again before importing your library.");
+      return;
+    }
+
+    setImporting(true);
+    setImportProgress({
+      phase: "checking-permissions",
+      total: 0,
+      processed: 0,
+      imported: 0,
+      skipped: 0,
+      failed: 0,
+    });
+
+    try {
+      await ensureSequentialPhotoLibrary(privateKey);
+
+      const result = await importPhotoLibrary(privateKey, setImportProgress);
+
+      if (result.status === "unsupported") {
+        Alert.alert("Unavailable", result.reason || "Library import is unavailable.");
+      } else if (result.status === "denied") {
+        Alert.alert(
+          "Photo Access Needed",
+          "Enable Photos access in Settings to import your library.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Open Settings",
+              onPress: () => Linking.openSettings(),
+            },
+          ]
+        );
+      } else if (result.status === "failed") {
+        Alert.alert(
+          "Import Stopped",
+          result.reason ||
+            `Imported ${result.imported} photos, skipped ${result.skipped}, failed ${result.failed}.`
+        );
+      } else if (result.status === "completed") {
+        const publishMessage = result.publishResult?.success
+          ? "Latest root confirmed on Nostr."
+          : "Latest root is queued for retry if relay confirmation lags.";
+
+        Alert.alert(
+          "Import Complete",
+          `Imported ${result.imported} photos, skipped ${result.skipped}, failed ${result.failed}.\n\n${publishMessage}`
+        );
+      }
+    } catch (error: any) {
+      Alert.alert("Import Failed", error?.message || "Could not import your photo library.");
+      setImportProgress((current) =>
+        current
+          ? {
+              ...current,
+              phase: "error",
+              message: error?.message || "Could not import your photo library.",
+            }
+          : null
+      );
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  const totalToProcess = importProgress?.total || 0;
+  const progressRatio =
+    totalToProcess > 0
+      ? importProgress!.processed / totalToProcess
+      : importProgress && importing
+        ? 0.12
+        : 0;
+  const progressWidth = `${Math.max(progressRatio * 100, importing ? 12 : 0)}%` as const;
+  const progressLabel = importProgress
+    ? importProgress.phase === "checking-permissions"
+      ? "Waiting for Photos access"
+      : importProgress.phase === "selecting"
+        ? "Choose photos to import"
+        : importProgress.phase === "loading"
+          ? "Loading your photo library"
+          : importProgress.phase === "publishing"
+            ? `Publishing ${importProgress.processed}/${Math.max(importProgress.total, 1)}`
+            : importProgress.phase === "complete"
+              ? `Imported ${importProgress.imported}/${importProgress.total}`
+              : importProgress.phase === "error"
+                ? importProgress.message || "Import failed"
+                : `Importing ${importProgress.processed}/${Math.max(importProgress.total, 1)} photos`
+    : null;
 
   if (loading) {
     return (
@@ -98,6 +205,24 @@ export default function SettingsScreen() {
         </Text>
       </View>
 
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Library Import</Text>
+        <TouchableOpacity
+          style={[styles.importButton, importing && styles.importButtonDisabled]}
+          onPress={handleImportLibrary}
+          disabled={importing}
+        >
+          <Text style={styles.importButtonText}>
+            {importing ? "Importing Library…" : "Import My Library"}
+          </Text>
+        </TouchableOpacity>
+        <Text style={styles.syncHint}>
+          On iPhone, this imports selected or full Photos library access using the
+          system picker, uploads each photo to Blossom, and publishes the updated
+          photo root to Nostr in batches.
+        </Text>
+      </View>
+
       <View style={styles.spacer} />
 
       <TouchableOpacity
@@ -122,6 +247,26 @@ export default function SettingsScreen() {
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutText}>Log Out</Text>
       </TouchableOpacity>
+
+      {importProgress ? (
+        <View style={styles.progressDock}>
+          <Text style={styles.progressTitle}>{progressLabel}</Text>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: progressWidth }]} />
+          </View>
+          <Text style={styles.progressMeta}>
+            {totalToProcess > 0
+              ? `${importProgress.processed}/${totalToProcess} photos`
+              : importProgress.message || "Preparing import"}
+            {" · "}
+            imported {importProgress.imported}
+            {" · "}
+            skipped {importProgress.skipped}
+            {" · "}
+            failed {importProgress.failed}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -135,6 +280,7 @@ const styles = StyleSheet.create({
   },
   section: {
     width: "100%",
+    marginBottom: 24,
   },
   sectionLabel: {
     fontSize: 13,
@@ -173,6 +319,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     color: "#666",
+  },
+  importButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "#0A84FF",
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    marginTop: 4,
+  },
+  importButtonDisabled: {
+    opacity: 0.7,
+  },
+  importButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
   },
   spacer: {
     flex: 1,
@@ -218,5 +380,39 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 18,
     color: "#666",
+  },
+  progressDock: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    bottom: 24,
+    backgroundColor: "#F4F8FF",
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#D7E6FF",
+  },
+  progressTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0A84FF",
+    marginBottom: 10,
+  },
+  progressTrack: {
+    height: 8,
+    backgroundColor: "#D7E6FF",
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#0A84FF",
+    borderRadius: 999,
+  },
+  progressMeta: {
+    marginTop: 10,
+    color: "#4A5C73",
+    fontSize: 12,
+    lineHeight: 16,
   },
 });
