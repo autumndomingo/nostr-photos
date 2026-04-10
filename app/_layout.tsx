@@ -20,11 +20,14 @@ import { resumePendingPhotoIngest } from "../lib/photo-ingest-manager";
 import { scheduleAfterInteractions } from "../lib/cooperative";
 import { ensureSessionLoaded } from "../lib/session-store";
 import { getToastSnapshot, subscribeToToast, showToast } from "../lib/toast";
+import { usePrefetchRoutes } from "../lib/use-fast-routes";
 
 export default function RootLayout() {
   const [toast, setToast] = useState(getToastSnapshot());
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const useNativeDriver = Platform.OS !== "web";
+
+  usePrefetchRoutes(["/camera", "/settings", "/gallery", "/library"], 180);
 
   useEffect(() => {
     let cancelled = false;
