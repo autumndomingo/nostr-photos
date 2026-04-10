@@ -8,12 +8,14 @@ import {
   ActivityIndicator,
   Platform,
   Linking,
+  ActionSheetIOS,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { loadPrivateKey, deletePrivateKey, getNpub } from "../lib/nostr";
 import { clearAllData } from "../lib/storage";
 import {
   importPhotoLibrary,
+  type ImportLibraryMode,
   type ImportLibraryProgress,
 } from "../lib/photo-library-import";
 import { ensureSequentialPhotoLibrary } from "../lib/photo-sync";
@@ -65,7 +67,7 @@ export default function SettingsScreen() {
     ]);
   }
 
-  async function handleImportLibrary() {
+  async function startLibraryImport(mode: ImportLibraryMode) {
     if (importing) return;
 
     if (Platform.OS !== "ios") {
@@ -92,7 +94,10 @@ export default function SettingsScreen() {
     try {
       await ensureSequentialPhotoLibrary(privateKey);
 
-      const result = await importPhotoLibrary(privateKey, setImportProgress);
+      const result = await importPhotoLibrary(privateKey, {
+        mode,
+        onProgress: setImportProgress,
+      });
 
       if (result.status === "unsupported") {
         Alert.alert("Unavailable", result.reason || "Library import is unavailable.");
@@ -138,6 +143,33 @@ export default function SettingsScreen() {
     } finally {
       setImporting(false);
     }
+  }
+
+  function handleImportLibrary() {
+    if (importing) return;
+
+    if (Platform.OS !== "ios") {
+      Alert.alert("Unavailable", "Library import is iPhone-only for now.");
+      return;
+    }
+
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        options: [
+          "Select Photos...",
+          "Allow Access to All Photos",
+          "Cancel",
+        ],
+        cancelButtonIndex: 2,
+      },
+      (buttonIndex) => {
+        if (buttonIndex === 0) {
+          void startLibraryImport("selected");
+        } else if (buttonIndex === 1) {
+          void startLibraryImport("all");
+        }
+      }
+    );
   }
 
   const totalToProcess = importProgress?.total || 0;
