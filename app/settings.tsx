@@ -14,9 +14,11 @@ import { useRouter } from "expo-router";
 import { loadPrivateKey, deletePrivateKey, getNpub } from "../lib/nostr";
 import { clearAllData } from "../lib/storage";
 import {
+  importSelectedPhotosFromPicker,
   importPhotoLibrary,
   type ImportLibraryMode,
   type ImportLibraryProgress,
+  type ImportLibraryResult,
 } from "../lib/photo-library-import";
 import { ensureSequentialPhotoLibrary } from "../lib/photo-sync";
 
@@ -67,7 +69,40 @@ export default function SettingsScreen() {
     ]);
   }
 
-  async function startLibraryImport(mode: ImportLibraryMode) {
+  function handleImportResult(result: ImportLibraryResult) {
+    if (result.status === "unsupported") {
+      Alert.alert("Unavailable", result.reason || "Library import is unavailable.");
+    } else if (result.status === "denied") {
+      Alert.alert(
+        "Photo Access Needed",
+        "Enable Photos access in Settings to import your library.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Open Settings",
+            onPress: () => Linking.openSettings(),
+          },
+        ]
+      );
+    } else if (result.status === "failed") {
+      Alert.alert(
+        "Import Stopped",
+        result.reason ||
+          `Imported ${result.imported} photos, skipped ${result.skipped}, failed ${result.failed}.`
+      );
+    } else if (result.status === "completed") {
+      const publishMessage = result.publishResult?.success
+        ? "Latest root confirmed on Nostr."
+        : "Latest root is queued for retry if relay confirmation lags.";
+
+      Alert.alert(
+        "Import Complete",
+        `Imported ${result.imported} photos, skipped ${result.skipped}, failed ${result.failed}.\n\n${publishMessage}`
+      );
+    }
+  }
+
+  async function startAllPhotosImport(mode: ImportLibraryMode) {
     if (importing) return;
 
     if (Platform.OS !== "ios") {
@@ -98,37 +133,7 @@ export default function SettingsScreen() {
         mode,
         onProgress: setImportProgress,
       });
-
-      if (result.status === "unsupported") {
-        Alert.alert("Unavailable", result.reason || "Library import is unavailable.");
-      } else if (result.status === "denied") {
-        Alert.alert(
-          "Photo Access Needed",
-          "Enable Photos access in Settings to import your library.",
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Open Settings",
-              onPress: () => Linking.openSettings(),
-            },
-          ]
-        );
-      } else if (result.status === "failed") {
-        Alert.alert(
-          "Import Stopped",
-          result.reason ||
-            `Imported ${result.imported} photos, skipped ${result.skipped}, failed ${result.failed}.`
-        );
-      } else if (result.status === "completed") {
-        const publishMessage = result.publishResult?.success
-          ? "Latest root confirmed on Nostr."
-          : "Latest root is queued for retry if relay confirmation lags.";
-
-        Alert.alert(
-          "Import Complete",
-          `Imported ${result.imported} photos, skipped ${result.skipped}, failed ${result.failed}.\n\n${publishMessage}`
-        );
-      }
+      handleImportResult(result);
     } catch (error: any) {
       Alert.alert("Import Failed", error?.message || "Could not import your photo library.");
       setImportProgress((current) =>
@@ -137,6 +142,56 @@ export default function SettingsScreen() {
               ...current,
               phase: "error",
               message: error?.message || "Could not import your photo library.",
+            }
+          : null
+      );
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function startSelectedPhotosImport() {
+    if (importing) return;
+
+    if (Platform.OS !== "ios") {
+      Alert.alert("Unavailable", "Library import is iPhone-only for now.");
+      return;
+    }
+
+    const privateKey = await loadPrivateKey();
+    if (!privateKey) {
+      Alert.alert("No Account", "Log in again before importing your library.");
+      return;
+    }
+
+    setImporting(true);
+    setImportProgress({
+      phase: "selecting",
+      total: 0,
+      processed: 0,
+      imported: 0,
+      skipped: 0,
+      failed: 0,
+      message: "Choose photos, then tap Done.",
+    });
+
+    try {
+      const result = await importSelectedPhotosFromPicker(
+        privateKey,
+        setImportProgress
+      );
+      handleImportResult(result);
+    } catch (error: any) {
+      Alert.alert(
+        "Import Failed",
+        error?.message || "Could not import the selected photos."
+      );
+      setImportProgress((current) =>
+        current
+          ? {
+              ...current,
+              phase: "error",
+              message: error?.message || "Could not import the selected photos.",
             }
           : null
       );
@@ -164,9 +219,9 @@ export default function SettingsScreen() {
       },
       (buttonIndex) => {
         if (buttonIndex === 0) {
-          void startLibraryImport("selected");
+          void startSelectedPhotosImport();
         } else if (buttonIndex === 1) {
-          void startLibraryImport("all");
+          void startAllPhotosImport("all");
         }
       }
     );
