@@ -9,6 +9,7 @@ import {
   Linking,
   Animated,
   Pressable,
+  Platform,
 } from "react-native";
 import { Image } from "expo-image";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -17,7 +18,7 @@ import { useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import {
   initStorage,
-  subscribeToPhotoEntries,
+  subscribeToLatestPhotoEntry,
   getPhotoDisplayUri,
 } from "../lib/storage";
 import { log } from "../lib/logger";
@@ -30,6 +31,7 @@ type CameraMode = "photo" | "video";
 export default function CameraScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
+  const useNativeDriver = Platform.OS !== "web";
   const cameraRef = useRef<CameraView>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [taking, setTaking] = useState(false);
@@ -57,8 +59,8 @@ export default function CameraScreen() {
       return;
     }
 
-    return subscribeToPhotoEntries((entries) => {
-      if (entries.length === 0) {
+    return subscribeToLatestPhotoEntry((entry) => {
+      if (!entry) {
         startTransition(() => {
           setLastMediaUri(null);
         });
@@ -66,7 +68,7 @@ export default function CameraScreen() {
       }
 
       startTransition(() => {
-        setLastMediaUri(getPhotoDisplayUri(entries[0]));
+        setLastMediaUri(getPhotoDisplayUri(entry));
       });
     });
   }, [cameraGranted]);
@@ -79,12 +81,12 @@ export default function CameraScreen() {
           Animated.timing(recordPulse, {
             toValue: 0.3,
             duration: 600,
-            useNativeDriver: true,
+            useNativeDriver,
           }),
           Animated.timing(recordPulse, {
             toValue: 1,
             duration: 600,
-            useNativeDriver: true,
+            useNativeDriver,
           }),
         ])
       );
@@ -93,7 +95,7 @@ export default function CameraScreen() {
     } else {
       recordPulse.setValue(1);
     }
-  }, [recording]);
+  }, [recording, recordPulse, useNativeDriver]);
 
   // Still loading permission status
   if (!cameraPermission) {

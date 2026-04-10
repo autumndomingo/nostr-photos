@@ -1,5 +1,7 @@
 import { File, Paths, Directory } from "expo-file-system/next";
 import { toHex, type CID } from "@hashtree/core";
+import { Platform } from "react-native";
+import { clearDeferredText, readDeferredText, writeDeferredText } from "./deferred-file";
 
 export type PhotoEntry = {
   name: string;
@@ -13,17 +15,53 @@ export type PhotoEntry = {
   cacheExtension?: string;
 };
 
-const PHOTOS_DIR = new Directory(Paths.document, "photos");
-const PHOTO_DB_FILE = new File(Paths.document, "photos.json");
 const SEQUENTIAL_PHOTO_NAME_RE = /^photo_(\d{6,})\.[a-z0-9]+$/i;
+const PHOTO_DB_STORAGE_KEY = "nostr_photos_photo_db";
 let photoEntriesCache: PhotoEntry[] | null = null;
 const photoEntryListeners = new Set<(entries: PhotoEntry[]) => void>();
+const latestPhotoEntryListeners = new Set<(entry: PhotoEntry | null) => void>();
 const photoUriCache = new Map<string, string>();
+let latestPhotoEntryCache: PhotoEntry | null = null;
+
+function getPhotosDir(): Directory {
+  return new Directory(Paths.document, "photos");
+}
+
+function getPhotoDbFile(): File {
+  return new File(Paths.document, "photos.json");
+}
 
 export function initStorage(): void {
-  if (!PHOTOS_DIR.exists) {
-    PHOTOS_DIR.create({ intermediates: true });
+  if (Platform.OS === "web") {
+    return;
   }
+  const photosDir = getPhotosDir();
+  if (!photosDir.exists) {
+    photosDir.create({ intermediates: true });
+  }
+}
+
+function readStoredPhotoEntriesText(): string | null {
+  if (Platform.OS === "web") {
+    return localStorage.getItem(PHOTO_DB_STORAGE_KEY);
+  }
+  return readDeferredText(getPhotoDbFile());
+}
+
+function writeStoredPhotoEntriesText(text: string): void {
+  if (Platform.OS === "web") {
+    localStorage.setItem(PHOTO_DB_STORAGE_KEY, text);
+    return;
+  }
+  writeDeferredText(getPhotoDbFile(), text);
+}
+
+function clearStoredPhotoEntriesText(): void {
+  if (Platform.OS === "web") {
+    localStorage.removeItem(PHOTO_DB_STORAGE_KEY);
+    return;
+  }
+  clearDeferredText(getPhotoDbFile());
 }
 
 function normalizeCacheExtension(extension?: string): string {
@@ -107,8 +145,19 @@ function normalizePhotoEntry(raw: any): PhotoEntry | null {
 
 function emitPhotoEntries(entries: PhotoEntry[]): void {
   const snapshot = [...entries];
+  const latest = snapshot[0] || null;
+  const latestChanged =
+    latestPhotoEntryCache?.cidHash !== latest?.cidHash ||
+    latestPhotoEntryCache?.name !== latest?.name ||
+    latestPhotoEntryCache?.timestamp !== latest?.timestamp;
+  latestPhotoEntryCache = latest;
   for (const listener of photoEntryListeners) {
     listener(snapshot);
+  }
+  if (latestChanged) {
+    for (const listener of latestPhotoEntryListeners) {
+      listener(latest);
+    }
   }
 }
 
@@ -116,9 +165,12 @@ export function loadPhotoEntries(): PhotoEntry[] {
   if (photoEntriesCache) {
     return [...photoEntriesCache];
   }
-  if (!PHOTO_DB_FILE.exists) return [];
+  const text = readStoredPhotoEntriesText();
+  if (!text) {
+    latestPhotoEntryCache = null;
+    return [];
+  }
   try {
-    const text = PHOTO_DB_FILE.textSync();
     const raw = JSON.parse(text) as any[];
     const entries = sortPhotoEntries(
       raw
@@ -126,16 +178,23 @@ export function loadPhotoEntries(): PhotoEntry[] {
         .filter((entry): entry is PhotoEntry => entry !== null)
     );
     photoEntriesCache = entries;
+    latestPhotoEntryCache = entries[0] || null;
     return [...entries];
   } catch {
+    latestPhotoEntryCache = null;
     return [];
   }
 }
 
 // Wipe all local data and start fresh
 export function clearAllData(): void {
-  if (PHOTO_DB_FILE.exists) PHOTO_DB_FILE.delete();
-  if (PHOTOS_DIR.exists) PHOTOS_DIR.delete();
+  clearStoredPhotoEntriesText();
+  if (Platform.OS !== "web") {
+    const photoDbFile = getPhotoDbFile();
+    const photosDir = getPhotosDir();
+    if (photoDbFile.exists) photoDbFile.delete();
+    if (photosDir.exists) photosDir.delete();
+  }
   photoEntriesCache = [];
   photoUriCache.clear();
   emitPhotoEntries([]);
@@ -143,7 +202,7 @@ export function clearAllData(): void {
 
 function savePhotoEntries(entries: PhotoEntry[]): void {
   const sortedEntries = sortPhotoEntries(entries);
-  PHOTO_DB_FILE.write(JSON.stringify(sortedEntries));
+  writeStoredPhotoEntriesText(JSON.stringify(sortedEntries));
   photoEntriesCache = sortedEntries;
   emitPhotoEntries(sortedEntries);
 }
@@ -262,7 +321,10 @@ export function addPhotoEntry(
 // Get local cache path for a photo
 export function getLocalCachePath(cidHash: string, extension = "jpg"): File {
   initStorage();
-  return new File(PHOTOS_DIR, `${cidHash}.${normalizeCacheExtension(extension)}`);
+  return new File(
+    getPhotosDir(),
+    `${cidHash}.${normalizeCacheExtension(extension)}`
+  );
 }
 
 export function getLocalCachePathForEntry(entry: PhotoEntry): File {
@@ -286,6 +348,12 @@ export function getPhotoDisplayUri(entry: PhotoEntry): string {
     return cachedUri;
   }
 
+  if (Platform.OS === "web") {
+    const remoteUri = `https://blossom.primal.net/${entry.cidHash}`;
+    photoUriCache.set(entry.cidHash, remoteUri);
+    return remoteUri;
+  }
+
   const localFile = getLocalCachePathForEntry(entry);
   const uri = localFile.exists
     ? localFile.uri
@@ -295,6 +363,9 @@ export function getPhotoDisplayUri(entry: PhotoEntry): string {
 }
 
 export function isPhotoCached(cidHash: string, extension = "jpg"): boolean {
+  if (Platform.OS === "web") {
+    return false;
+  }
   return getLocalCachePath(cidHash, extension).exists;
 }
 
@@ -306,6 +377,27 @@ export function subscribeToPhotoEntries(
 
   return () => {
     photoEntryListeners.delete(listener);
+  };
+}
+
+export function getLatestPhotoEntry(
+  entries: PhotoEntry[] = loadPhotoEntries()
+): PhotoEntry | null {
+  if (latestPhotoEntryCache !== null || entries.length === 0) {
+    return latestPhotoEntryCache;
+  }
+
+  latestPhotoEntryCache = entries[0] || null;
+  return latestPhotoEntryCache;
+}
+
+export function subscribeToLatestPhotoEntry(
+  listener: (entry: PhotoEntry | null) => void
+): () => void {
+  latestPhotoEntryListeners.add(listener);
+  listener(getLatestPhotoEntry());
+  return () => {
+    latestPhotoEntryListeners.delete(listener);
   };
 }
 

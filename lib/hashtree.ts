@@ -21,6 +21,7 @@ import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 import { File, Paths } from "expo-file-system/next";
 import { FileStore } from "./file-store";
 import { log } from "./logger";
+import { readDeferredText, writeDeferredText } from "./deferred-file";
 
 const BLOSSOM_SERVERS = [
   { url: "https://upload.iris.to", read: true, write: true },
@@ -28,7 +29,9 @@ const BLOSSOM_SERVERS = [
   { url: "https://blossom.primal.net", read: true, write: true },
 ];
 
-const ROOT_FILE = new File(Paths.document, "tree-root.json");
+function getRootFile(): File {
+  return new File(Paths.document, "tree-root.json");
+}
 
 // ---- Singleton state ----
 let _fileStore: FileStore | null = null;
@@ -132,7 +135,7 @@ export function saveRootCID(rootCid: CID): void {
     key: rootCid.key ? toHex(rootCid.key) : undefined,
   };
   _cachedRootCid = rootCid;
-  ROOT_FILE.write(JSON.stringify(data));
+  writeDeferredText(getRootFile(), JSON.stringify(data));
 }
 
 // Load the saved root CID
@@ -140,9 +143,9 @@ export function loadRootCID(): CID | null {
   if (_cachedRootCid) {
     return _cachedRootCid;
   }
-  if (!ROOT_FILE.exists) return null;
   try {
-    const text = ROOT_FILE.textSync();
+    const text = readDeferredText(getRootFile());
+    if (!text) return null;
     const data = JSON.parse(text);
     if (!data.hash) return null;
     _cachedRootCid = cid(fromHex(data.hash), data.key ? fromHex(data.key) : undefined);

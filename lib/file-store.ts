@@ -6,16 +6,19 @@
 import { File, Directory, Paths } from "expo-file-system/next";
 import { toHex, type Store, type Hash } from "@hashtree/core";
 
-const STORE_DIR = new Directory(Paths.document, "hashtree-store");
+function getStoreDir(): Directory {
+  return new Directory(Paths.document, "hashtree-store");
+}
 
 function ensureDir() {
-  if (!STORE_DIR.exists) {
-    STORE_DIR.create({ intermediates: true });
+  const storeDir = getStoreDir();
+  if (!storeDir.exists) {
+    storeDir.create({ intermediates: true });
   }
 }
 
 function hashToFile(hash: Hash): File {
-  return new File(STORE_DIR, toHex(hash));
+  return new File(getStoreDir(), toHex(hash));
 }
 
 export class FileStore implements Store {

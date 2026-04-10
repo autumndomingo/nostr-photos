@@ -15,12 +15,12 @@ function resolveLogServer() {
     }
   }
 
-  return "http://localhost:9999/log";
+  return null;
 }
 
 const LOG_SERVER = resolveLogServer();
-const LOG_FLUSH_INTERVAL_MS = 250;
-const MAX_QUEUED_LOGS = 200;
+const LOG_FLUSH_INTERVAL_MS = 900;
+const MAX_QUEUED_LOGS = 300;
 
 let pendingMessages: string[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -35,6 +35,7 @@ function shouldConsoleLog(message: string): boolean {
 }
 
 function scheduleFlush() {
+  if (!LOG_SERVER) return;
   if (flushTimer) return;
   flushTimer = setTimeout(() => {
     flushTimer = null;

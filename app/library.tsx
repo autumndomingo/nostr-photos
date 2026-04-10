@@ -8,13 +8,13 @@ import {
   Dimensions,
 } from "react-native";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
 import {
   loadPhotoEntries,
   PhotoEntry,
   subscribeToPhotoEntries,
   getPhotoDisplayUri,
 } from "../lib/storage";
+import { useSmartBack } from "../lib/use-smart-back";
 import { useTapGuard } from "../lib/use-tap-guard";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -23,7 +23,7 @@ const TILE_GAP = 2;
 const TILE_SIZE = (SCREEN_WIDTH - TILE_GAP * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
 
 export default function LibraryScreen() {
-  const router = useRouter();
+  const smartBack = useSmartBack("/camera");
   const [photos, setPhotos] = useState<PhotoEntry[]>(() => loadPhotoEntries());
   const guardTap = useTapGuard(180);
 
@@ -38,7 +38,7 @@ export default function LibraryScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => guardTap(() => router.back())}>
+        <TouchableOpacity onPress={() => guardTap(smartBack)}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>All Photos</Text>

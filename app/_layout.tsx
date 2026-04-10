@@ -1,8 +1,8 @@
 import "../lib/fetch-polyfill";
 import "../lib/crypto-polyfill";
 import "react-native-get-random-values";
-import { useEffect } from "react";
-import { Alert, AppState } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Animated, AppState, Platform, Text } from "react-native";
 import { Stack } from "expo-router";
 import {
   retryPendingMerkleRootPublish,
@@ -19,8 +19,13 @@ import { resumePendingPhotoRootRemoteSync } from "../lib/photo-remote-sync";
 import { resumePendingPhotoIngest } from "../lib/photo-ingest-manager";
 import { scheduleAfterInteractions } from "../lib/cooperative";
 import { ensureSessionLoaded } from "../lib/session-store";
+import { getToastSnapshot, subscribeToToast, showToast } from "../lib/toast";
 
 export default function RootLayout() {
+  const [toast, setToast] = useState(getToastSnapshot());
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const useNativeDriver = Platform.OS !== "web";
+
   useEffect(() => {
     let cancelled = false;
     let importCompletionShown = false;
@@ -97,14 +102,19 @@ export default function RootLayout() {
         !importCompletionShown
       ) {
         importCompletionShown = true;
-        Alert.alert("uplaoding done");
+        showToast("uplaoding done");
       }
+    });
+
+    const unsubscribeToast = subscribeToToast((nextToast) => {
+      setToast(nextToast);
     });
 
     return () => {
       cancelled = true;
       appStateSubscription.remove();
       unsubscribeImport();
+      unsubscribeToast();
       for (const cancelTask of cancelDeferredTasks) {
         cancelTask();
       }
@@ -112,21 +122,63 @@ export default function RootLayout() {
     };
   }, []);
 
+  useEffect(() => {
+    Animated.timing(toastOpacity, {
+      toValue: toast.visible ? 1 : 0,
+      duration: toast.visible ? 180 : 220,
+      useNativeDriver,
+    }).start();
+  }, [toast.visible, toastOpacity, useNativeDriver]);
+
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor: "#7B2FF2" },
-        headerTintColor: "#fff",
-        headerTitleStyle: { fontWeight: "bold" },
-        freezeOnBlur: true,
-      }}
-    >
-      <Stack.Screen name="index" options={{ title: "Nostr Photos" }} />
-      <Stack.Screen name="settings" options={{ title: "Profile", animation: "none" }} />
-      <Stack.Screen name="camera" options={{ title: "Camera", headerShown: false }} />
-      <Stack.Screen name="preview" options={{ title: "Photo Preview" }} />
-      <Stack.Screen name="gallery" options={{ title: "Library", headerShown: false, animation: "none" }} />
-      <Stack.Screen name="library" options={{ title: "All Photos", headerShown: false, animation: "none" }} />
-    </Stack>
+    <>
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: "#7B2FF2" },
+          headerTintColor: "#fff",
+          headerTitleStyle: { fontWeight: "bold" },
+          freezeOnBlur: true,
+        }}
+      >
+        <Stack.Screen name="index" options={{ title: "Nostr Photos" }} />
+        <Stack.Screen name="settings" options={{ title: "Profile", headerShown: false, animation: "none" }} />
+        <Stack.Screen name="camera" options={{ title: "Camera", headerShown: false }} />
+        <Stack.Screen name="preview" options={{ title: "Photo Preview" }} />
+        <Stack.Screen name="gallery" options={{ title: "Library", headerShown: false, animation: "none" }} />
+        <Stack.Screen name="library" options={{ title: "All Photos", headerShown: false, animation: "none" }} />
+      </Stack>
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 20,
+          right: 20,
+          bottom: 36,
+          opacity: toastOpacity,
+          transform: [
+            {
+              translateY: toastOpacity.interpolate({
+                inputRange: [0, 1],
+                outputRange: [12, 0],
+              }),
+            },
+          ],
+        }}
+      >
+        <Animated.View
+          style={{
+            alignSelf: "center",
+            backgroundColor: "rgba(17,17,17,0.94)",
+            borderRadius: 999,
+            paddingVertical: 10,
+            paddingHorizontal: 16,
+          }}
+        >
+          <Text style={{ color: "#fff", fontWeight: "600" }}>
+            {toast.message}
+          </Text>
+        </Animated.View>
+      </Animated.View>
+    </>
   );
 }

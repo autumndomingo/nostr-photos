@@ -6,6 +6,7 @@ import * as nip44 from "nostr-tools/nip44";
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { log } from "./logger";
+import { clearDeferredText, readDeferredText, writeDeferredText } from "./deferred-file";
 
 const PRIVATE_KEY_STORE = "nostr_private_key";
 const PENDING_ROOT_STORAGE_KEY = "nostr_pending_root_publish";
@@ -94,9 +95,7 @@ function readPendingPublishText(): string | null {
     return localStorage.getItem(PENDING_ROOT_STORAGE_KEY);
   }
 
-  const file = getPendingPublishFile();
-  if (!file.exists) return null;
-  return file.textSync();
+  return readDeferredText(getPendingPublishFile());
 }
 
 function writePendingPublishText(text: string): void {
@@ -105,7 +104,7 @@ function writePendingPublishText(text: string): void {
     return;
   }
 
-  getPendingPublishFile().write(text);
+  writeDeferredText(getPendingPublishFile(), text);
 }
 
 function deletePendingPublishText(): void {
@@ -115,6 +114,7 @@ function deletePendingPublishText(): void {
   }
 
   const file = getPendingPublishFile();
+  clearDeferredText(file);
   if (file.exists) {
     file.delete();
   }

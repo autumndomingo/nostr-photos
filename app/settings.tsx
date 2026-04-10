@@ -29,10 +29,13 @@ import {
   getSessionSnapshot,
   subscribeToSession,
 } from "../lib/session-store";
+import { showToast } from "../lib/toast";
 import { useTapGuard } from "../lib/use-tap-guard";
+import { useSmartBack } from "../lib/use-smart-back";
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const smartBack = useSmartBack("/camera");
   const [session, setSession] = useState(getSessionSnapshot());
   const [copied, setCopied] = useState(false);
   const [secretCopied, setSecretCopied] = useState(false);
@@ -290,6 +293,13 @@ export default function SettingsScreen() {
     <View style={styles.container}>
       <View style={styles.topActions}>
         <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => guardTap(smartBack)}
+        >
+          <Text style={styles.backText}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.topTitle}>Profile</Text>
+        <TouchableOpacity
           style={styles.topLogoutButton}
           onPress={() => guardTap(handleLogout)}
         >
@@ -363,7 +373,7 @@ export default function SettingsScreen() {
                 style: "destructive",
                 onPress: () => {
                   clearAllData();
-                  Alert.alert("Done", "Photo data cleared.");
+                  showToast("photo data cleared");
                 },
               },
             ]);
@@ -413,8 +423,26 @@ const styles = StyleSheet.create({
   topActions: {
     width: "100%",
     flexDirection: "row",
-    justifyContent: "flex-end",
-    marginBottom: 8,
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  topTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111",
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  backText: {
+    fontSize: 28,
+    color: "#111",
+    lineHeight: 28,
   },
   sectionLabel: {
     fontSize: 13,

@@ -10,6 +10,7 @@ import {
   type SelectedPhotoImportAsset,
 } from "./photo-library-import";
 import { log } from "./logger";
+import { clearDeferredText, readDeferredText, writeDeferredText } from "./deferred-file";
 
 type PendingImportJob =
   | {
@@ -29,8 +30,6 @@ export type PhotoImportManagerSnapshot = {
   pendingJob: PendingImportJob | null;
 };
 
-const PENDING_IMPORT_FILE = new File(Paths.document, "pending-photo-import.json");
-
 let currentSnapshot: PhotoImportManagerSnapshot = {
   active: false,
   progress: null,
@@ -40,6 +39,10 @@ let currentSnapshot: PhotoImportManagerSnapshot = {
 
 let currentJobPromise: Promise<ImportLibraryResult | null> | null = null;
 const listeners = new Set<(snapshot: PhotoImportManagerSnapshot) => void>();
+
+function getPendingImportFile(): File {
+  return new File(Paths.document, "pending-photo-import.json");
+}
 
 function emitSnapshot(next: Partial<PhotoImportManagerSnapshot>): void {
   currentSnapshot = {
@@ -54,8 +57,8 @@ function emitSnapshot(next: Partial<PhotoImportManagerSnapshot>): void {
 
 function readPendingImportJob(): PendingImportJob | null {
   try {
-    if (!PENDING_IMPORT_FILE.exists) return null;
-    const text = PENDING_IMPORT_FILE.textSync();
+    const text = readDeferredText(getPendingImportFile());
+    if (!text) return null;
     const parsed = JSON.parse(text) as PendingImportJob;
     if (!parsed || (parsed.kind !== "all" && parsed.kind !== "selected")) {
       return null;
@@ -70,12 +73,14 @@ function readPendingImportJob(): PendingImportJob | null {
 }
 
 function writePendingImportJob(job: PendingImportJob): void {
-  PENDING_IMPORT_FILE.write(JSON.stringify(job));
+  writeDeferredText(getPendingImportFile(), JSON.stringify(job));
 }
 
 function clearPendingImportJob(): void {
-  if (PENDING_IMPORT_FILE.exists) {
-    PENDING_IMPORT_FILE.delete();
+  const file = getPendingImportFile();
+  clearDeferredText(file);
+  if (file.exists) {
+    file.delete();
   }
 }
 

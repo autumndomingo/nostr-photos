@@ -6,6 +6,7 @@ import { flushPhotoRootToRemote } from "./photo-sync";
 import { log } from "./logger";
 import { loadPhotoEntries } from "./storage";
 import { scheduleAfterInteractions } from "./cooperative";
+import { clearDeferredText, readDeferredText, writeDeferredText } from "./deferred-file";
 
 type PendingPhotoRemoteSyncJob = {
   rootHash: string;
@@ -14,11 +15,6 @@ type PendingPhotoRemoteSyncJob = {
   updatedAt: number;
   reason?: string;
 };
-
-const PENDING_REMOTE_SYNC_FILE = new File(
-  Paths.document,
-  "pending-photo-root-sync.json"
-);
 const REMOTE_SYNC_DEBOUNCE_MS = 1200;
 const REMOTE_SYNC_RETRY_DELAY_MS = 6000;
 
@@ -27,13 +23,14 @@ let scheduledTimer: ReturnType<typeof setTimeout> | null = null;
 let runningPromise: Promise<void> | null = null;
 let cancelScheduledRun: (() => void) | null = null;
 
+function getPendingRemoteSyncFile(): File {
+  return new File(Paths.document, "pending-photo-root-sync.json");
+}
+
 function readPendingRemoteSyncJob(): PendingPhotoRemoteSyncJob | null {
   try {
-    if (!PENDING_REMOTE_SYNC_FILE.exists) {
-      return null;
-    }
-
-    const text = PENDING_REMOTE_SYNC_FILE.textSync();
+    const text = readDeferredText(getPendingRemoteSyncFile());
+    if (!text) return null;
     const parsed = JSON.parse(text) as PendingPhotoRemoteSyncJob;
     if (
       !parsed ||
@@ -50,12 +47,14 @@ function readPendingRemoteSyncJob(): PendingPhotoRemoteSyncJob | null {
 }
 
 function writePendingRemoteSyncJob(job: PendingPhotoRemoteSyncJob): void {
-  PENDING_REMOTE_SYNC_FILE.write(JSON.stringify(job));
+  writeDeferredText(getPendingRemoteSyncFile(), JSON.stringify(job));
 }
 
 function clearPendingRemoteSyncJob(): void {
-  if (PENDING_REMOTE_SYNC_FILE.exists) {
-    PENDING_REMOTE_SYNC_FILE.delete();
+  const file = getPendingRemoteSyncFile();
+  clearDeferredText(file);
+  if (file.exists) {
+    file.delete();
   }
 }
 

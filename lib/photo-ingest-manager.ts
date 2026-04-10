@@ -4,6 +4,7 @@ import { ingestPhotoBytes } from "./photo-sync";
 import { queuePhotoRootRemoteSync } from "./photo-remote-sync";
 import { log } from "./logger";
 import { scheduleAfterInteractions, yieldToUI } from "./cooperative";
+import { readDeferredText, writeDeferredText } from "./deferred-file";
 
 type PendingCapturedPhotoJob = {
   uri: string;
@@ -11,9 +12,6 @@ type PendingCapturedPhotoJob = {
   extension: string;
   createdAt: number;
 };
-
-const PENDING_CAPTURE_DIR = new Directory(Paths.document, "pending-captures");
-const PENDING_CAPTURE_FILE = new File(Paths.document, "pending-photo-ingest.json");
 const INGEST_DEBOUNCE_MS = 1500;
 const INGEST_RETRY_DELAY_MS = 5000;
 
@@ -22,9 +20,18 @@ let runningPromise: Promise<void> | null = null;
 let scheduledTimer: ReturnType<typeof setTimeout> | null = null;
 let cancelScheduledRun: (() => void) | null = null;
 
+function getPendingCaptureDir(): Directory {
+  return new Directory(Paths.document, "pending-captures");
+}
+
+function getPendingCaptureFile(): File {
+  return new File(Paths.document, "pending-photo-ingest.json");
+}
+
 function ensurePendingCaptureDir(): void {
-  if (!PENDING_CAPTURE_DIR.exists) {
-    PENDING_CAPTURE_DIR.create({ intermediates: true });
+  const pendingCaptureDir = getPendingCaptureDir();
+  if (!pendingCaptureDir.exists) {
+    pendingCaptureDir.create({ intermediates: true });
   }
 }
 
@@ -34,12 +41,11 @@ function readQueue(): PendingCapturedPhotoJob[] {
   }
 
   try {
-    if (!PENDING_CAPTURE_FILE.exists) {
+    const text = readDeferredText(getPendingCaptureFile());
+    if (!text) {
       jobQueue = [];
       return [];
     }
-
-    const text = PENDING_CAPTURE_FILE.textSync();
     const parsed = JSON.parse(text) as PendingCapturedPhotoJob[];
     jobQueue = Array.isArray(parsed)
       ? parsed.filter(
@@ -59,7 +65,7 @@ function readQueue(): PendingCapturedPhotoJob[] {
 
 function writeQueue(queue: PendingCapturedPhotoJob[]): void {
   jobQueue = [...queue];
-  PENDING_CAPTURE_FILE.write(JSON.stringify(jobQueue));
+  writeDeferredText(getPendingCaptureFile(), JSON.stringify(jobQueue));
 }
 
 function scheduleRun(delayMs: number): void {
@@ -84,7 +90,7 @@ export function enqueueCapturedPhotoForIngest(
 ): string {
   ensurePendingCaptureDir();
   const fileName = `capture_${capturedAt}.${extension.replace(/^\./, "")}`;
-  const dest = new File(PENDING_CAPTURE_DIR, fileName);
+  const dest = new File(getPendingCaptureDir(), fileName);
   if (dest.exists) {
     dest.delete();
   }

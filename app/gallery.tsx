@@ -9,6 +9,7 @@ import {
   PanResponder,
   Pressable,
   Animated,
+  Platform,
 } from "react-native";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
@@ -19,6 +20,7 @@ import {
   getPhotoDisplayUri,
 } from "../lib/storage";
 import { log } from "../lib/logger";
+import { useSmartBack } from "../lib/use-smart-back";
 import { useTapGuard } from "../lib/use-tap-guard";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -29,6 +31,8 @@ const THUMB_TOTAL = THUMB_WIDTH + THUMB_GAP;
 
 export default function GalleryScreen() {
   const router = useRouter();
+  const smartBack = useSmartBack("/camera");
+  const useNativeDriver = Platform.OS !== "web";
   const [photos, setPhotos] = useState<PhotoEntry[]>(() => loadPhotoEntries());
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showUI, setShowUI] = useState(true);
@@ -108,7 +112,7 @@ export default function GalleryScreen() {
     Animated.timing(uiOpacity, {
       toValue: next ? 1 : 0,
       duration: 200,
-      useNativeDriver: true,
+      useNativeDriver,
     }).start();
   }
 
@@ -136,15 +140,15 @@ export default function GalleryScreen() {
           Animated.timing(dragY, {
             toValue: SCREEN_HEIGHT,
             duration: 200,
-            useNativeDriver: true,
+            useNativeDriver,
           }).start(() => {
-            guardTap(() => router.back());
+            guardTap(smartBack);
           });
         } else {
           // Snap back
           Animated.spring(dragY, {
             toValue: 0,
-            useNativeDriver: true,
+            useNativeDriver,
             tension: 80,
             friction: 10,
           }).start();
@@ -201,7 +205,7 @@ export default function GalleryScreen() {
             style={[styles.topBar, { opacity: uiOpacity }]}
             pointerEvents={showUI ? "auto" : "none"}
           >
-            <TouchableOpacity onPress={() => guardTap(() => router.back())}>
+            <TouchableOpacity onPress={() => guardTap(smartBack)}>
               <Text style={styles.backText}>‹</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -268,7 +272,7 @@ export default function GalleryScreen() {
           <Text style={styles.emptyText}>No photos yet. Go take some!</Text>
           <TouchableOpacity
             style={styles.goBackButton}
-            onPress={() => guardTap(() => router.back())}
+            onPress={() => guardTap(smartBack)}
           >
             <Text style={styles.goBackText}>Open Camera</Text>
           </TouchableOpacity>
