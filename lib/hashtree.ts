@@ -83,6 +83,14 @@ export function getHashTree(privateKey: Uint8Array): {
     servers: BLOSSOM_SERVERS,
     signer: createSigner(privateKey),
     logger: (entry) => {
+      const expectedReadMiss =
+        (entry.operation === "get" &&
+          (entry.error === "404" || entry.error === "Hash mismatch")) ||
+        (entry.operation === "has" && entry.error === "404");
+      if (expectedReadMiss) {
+        return;
+      }
+
       if (!entry.success) {
         const serverLabel = entry.server.includes("//")
           ? entry.server.split("//")[1]

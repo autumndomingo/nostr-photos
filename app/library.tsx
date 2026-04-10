@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, startTransition } from "react";
 import {
   View,
   TouchableOpacity,
@@ -28,18 +28,20 @@ export default function LibraryScreen() {
 
   useEffect(() => {
     return subscribeToPhotoEntries((entries) => {
-      setPhotos(entries);
-      setPhotoUris(
-        Object.fromEntries(
-          entries.map((entry) => {
-            const cached = getLocalCachePathForEntry(entry);
-            return [
-              entry.cidHash,
-              cached.exists ? cached.uri : `https://blossom.primal.net/${entry.cidHash}`,
-            ];
-          })
-        )
-      );
+      startTransition(() => {
+        setPhotos(entries);
+        setPhotoUris(
+          Object.fromEntries(
+            entries.map((entry) => {
+              const cached = getLocalCachePathForEntry(entry);
+              return [
+                entry.cidHash,
+                cached.exists ? cached.uri : `https://blossom.primal.net/${entry.cidHash}`,
+              ];
+            })
+          )
+        );
+      });
     });
   }, []);
 
@@ -56,6 +58,10 @@ export default function LibraryScreen() {
       <FlatList
         data={photos}
         numColumns={NUM_COLUMNS}
+        initialNumToRender={24}
+        maxToRenderPerBatch={24}
+        windowSize={5}
+        removeClippedSubviews
         keyExtractor={(item) => item.cidHash}
         contentContainerStyle={styles.grid}
         ListEmptyComponent={

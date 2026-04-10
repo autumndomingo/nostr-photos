@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, startTransition } from "react";
 import {
   View,
   TouchableOpacity,
@@ -14,22 +14,24 @@ import { Image } from "expo-image";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { File, Paths } from "expo-file-system/next";
 import { useRouter } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import {
   getLocalCachePathForEntry,
   initStorage,
-  loadPhotoEntries,
   subscribeToPhotoEntries,
 } from "../lib/storage";
 import { loadPrivateKey } from "../lib/nostr";
 import { ingestPhotoBytes } from "../lib/photo-sync";
 import { queuePhotoRootRemoteSync } from "../lib/photo-remote-sync";
 import { log } from "../lib/logger";
+import { scheduleAfterInteractions } from "../lib/cooperative";
 
 type ZoomLevel = 0.5 | 1 | 2 | 3;
 type CameraMode = "photo" | "video";
 
 export default function CameraScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const cameraRef = useRef<CameraView>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [taking, setTaking] = useState(false);
@@ -58,13 +60,17 @@ export default function CameraScreen() {
 
     return subscribeToPhotoEntries((entries) => {
       if (entries.length === 0) {
-        setLastMediaUri(null);
+        startTransition(() => {
+          setLastMediaUri(null);
+        });
         return;
       }
 
       const cached = getLocalCachePathForEntry(entries[0]);
       if (cached.exists) {
-        setLastMediaUri(cached.uri);
+        startTransition(() => {
+          setLastMediaUri(cached.uri);
+        });
       }
     });
   }, [cameraGranted]);
@@ -152,26 +158,20 @@ export default function CameraScreen() {
     if (!cameraRef.current || taking) return;
     setTaking(true);
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
-      if (!photo) {
-        setTaking(false);
-        return;
-      }
-
       const capturedAt = Date.now();
-      const tempName = `capture_${capturedAt}.jpg`;
-      const source = new File(photo.uri);
-      const dest = new File(Paths.cache, tempName);
-      if (dest.exists) {
-        dest.delete();
-      }
-      source.copy(dest);
-      setLastMediaUri(dest.uri);
-
-      // Camera is ready for the next shot immediately
+      await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+        shutterSound: false,
+        onPictureSaved: (photo) => {
+          startTransition(() => {
+            setLastMediaUri(photo.uri);
+          });
+          scheduleAfterInteractions(() => {
+            void uploadInBackground(new File(photo.uri), capturedAt);
+          }, 75);
+        },
+      });
       setTaking(false);
-
-      uploadInBackground(dest, capturedAt);
     } catch (e: any) {
       log("[PHOTO] Save error:", e?.message);
       setTaking(false);
@@ -207,8 +207,7 @@ export default function CameraScreen() {
         return;
       }
 
-      const entries = loadPhotoEntries();
-      log("[PHOTO] Saved locally. Photos:", entries.length);
+      log("[PHOTO] Saved locally as", result.entry.name);
       queuePhotoRootRemoteSync("camera");
     } catch (e: any) {
       log("[PHOTO] Upload error:", e?.message);
@@ -272,12 +271,13 @@ export default function CameraScreen() {
     <View style={styles.container}>
       {/* Camera viewfinder — double tap anywhere to flip */}
       <Pressable style={StyleSheet.absoluteFill} onPress={handleDoubleTap}>
-        <CameraView
-          ref={cameraRef}
-          style={styles.camera}
-          facing={facing}
-          flash={flash}
-          zoom={zoomValue}
+            <CameraView
+              ref={cameraRef}
+              style={styles.camera}
+              active={isFocused && ready}
+              facing={facing}
+              flash={flash}
+              zoom={zoomValue}
           mode={mode === "video" ? "video" : "picture"}
         />
       </Pressable>
@@ -307,7 +307,7 @@ export default function CameraScreen() {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => router.push("/settings")}>
+        <TouchableOpacity onPress={() => router.navigate("/settings")}>
           <Text style={styles.topIcon}>⚙️</Text>
           <Text style={styles.topLabel}>PROFILE</Text>
         </TouchableOpacity>
@@ -381,7 +381,7 @@ export default function CameraScreen() {
             onPress={() => {
               if (recording) return;
               log("[NAV] Opening gallery");
-              router.push("/gallery");
+              router.navigate("/gallery");
             }}
           >
             {lastMediaUri ? (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, startTransition } from "react";
 import {
   View,
   TouchableOpacity,
@@ -45,18 +45,20 @@ export default function GalleryScreen() {
 
   useEffect(() => {
     return subscribeToPhotoEntries((entries) => {
-      setPhotos(entries);
-      setPhotoUris(
-        Object.fromEntries(
-          entries.map((entry) => {
-            const cached = getLocalCachePathForEntry(entry);
-            return [
-              entry.cidHash,
-              cached.exists ? cached.uri : `https://blossom.primal.net/${entry.cidHash}`,
-            ];
-          })
-        )
-      );
+      startTransition(() => {
+        setPhotos(entries);
+        setPhotoUris(
+          Object.fromEntries(
+            entries.map((entry) => {
+              const cached = getLocalCachePathForEntry(entry);
+              return [
+                entry.cidHash,
+                cached.exists ? cached.uri : `https://blossom.primal.net/${entry.cidHash}`,
+              ];
+            })
+          )
+        );
+      });
     });
   }, []);
 
@@ -180,6 +182,10 @@ export default function GalleryScreen() {
             data={photos}
             horizontal
             pagingEnabled
+            initialNumToRender={1}
+            maxToRenderPerBatch={2}
+            windowSize={3}
+            removeClippedSubviews
             showsHorizontalScrollIndicator={false}
             keyExtractor={(item) => item.cidHash}
             style={styles.mainList}
@@ -212,7 +218,7 @@ export default function GalleryScreen() {
             <TouchableOpacity onPress={() => router.back()}>
               <Text style={styles.backText}>‹</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push("/library")}>
+            <TouchableOpacity onPress={() => router.navigate("/library")}>
               <Text style={styles.libraryText}>All Photos</Text>
             </TouchableOpacity>
           </Animated.View>
@@ -226,6 +232,10 @@ export default function GalleryScreen() {
               ref={thumbListRef}
               data={photos}
               horizontal
+              initialNumToRender={18}
+              maxToRenderPerBatch={18}
+              windowSize={5}
+              removeClippedSubviews
               showsHorizontalScrollIndicator={false}
               keyExtractor={(item) => "thumb_" + item.cidHash}
               contentContainerStyle={styles.thumbContent}

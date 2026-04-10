@@ -109,14 +109,15 @@ export default function RootLayout() {
         headerStyle: { backgroundColor: "#7B2FF2" },
         headerTintColor: "#fff",
         headerTitleStyle: { fontWeight: "bold" },
+        freezeOnBlur: true,
       }}
     >
       <Stack.Screen name="index" options={{ title: "Nostr Photos" }} />
-      <Stack.Screen name="settings" options={{ title: "Profile" }} />
+      <Stack.Screen name="settings" options={{ title: "Profile", animation: "none" }} />
       <Stack.Screen name="camera" options={{ title: "Camera", headerShown: false }} />
       <Stack.Screen name="preview" options={{ title: "Photo Preview" }} />
-      <Stack.Screen name="gallery" options={{ title: "Library", headerShown: false }} />
-      <Stack.Screen name="library" options={{ title: "All Photos", headerShown: false }} />
+      <Stack.Screen name="gallery" options={{ title: "Library", headerShown: false, animation: "none" }} />
+      <Stack.Screen name="library" options={{ title: "All Photos", headerShown: false, animation: "none" }} />
     </Stack>
   );
 }

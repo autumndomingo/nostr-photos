@@ -25,6 +25,15 @@ const MAX_QUEUED_LOGS = 200;
 let pendingMessages: string[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
+function shouldConsoleLog(message: string): boolean {
+  return (
+    /\berror\b/i.test(message) ||
+    /\bfailed\b/i.test(message) ||
+    /\bdenied\b/i.test(message) ||
+    /\bunavailable\b/i.test(message)
+  );
+}
+
 function scheduleFlush() {
   if (flushTimer) return;
   flushTimer = setTimeout(() => {
@@ -43,7 +52,9 @@ function scheduleFlush() {
 
 export function log(...args: any[]) {
   const message = args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ");
-  console.log(message);
+  if (shouldConsoleLog(message)) {
+    console.log(message);
+  }
 
   if (pendingMessages.length >= MAX_QUEUED_LOGS) {
     pendingMessages.shift();
