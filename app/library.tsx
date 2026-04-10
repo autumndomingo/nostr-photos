@@ -27,14 +27,15 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 const NUM_COLUMNS = 3;
 const TILE_GAP = 2;
 const TILE_SIZE = (SCREEN_WIDTH - TILE_GAP * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
+const TILE_ROW_SIZE = TILE_SIZE + TILE_GAP;
 
 const LibraryTile = memo(
   function LibraryTile({ uri, pending }: { uri: string; pending: boolean }) {
     return (
-      <TouchableOpacity style={styles.tile}>
+      <View style={styles.tile}>
         <Image source={{ uri }} style={styles.tileImage} />
         {pending ? <View style={styles.pendingBadge} /> : null}
-      </TouchableOpacity>
+      </View>
     );
   },
   (previous, next) =>
@@ -85,11 +86,17 @@ export default function LibraryScreen() {
       <FlatList
         data={deferredPhotos}
         numColumns={NUM_COLUMNS}
-        initialNumToRender={24}
-        maxToRenderPerBatch={24}
-        windowSize={5}
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        updateCellsBatchingPeriod={16}
+        windowSize={4}
         removeClippedSubviews
         keyExtractor={(item) => item.key}
+        getItemLayout={(_, index) => ({
+          length: TILE_ROW_SIZE,
+          offset: TILE_ROW_SIZE * Math.floor(index / NUM_COLUMNS),
+          index,
+        })}
         contentContainerStyle={styles.grid}
         ListEmptyComponent={
           <Text style={styles.emptyText}>No photos yet.</Text>

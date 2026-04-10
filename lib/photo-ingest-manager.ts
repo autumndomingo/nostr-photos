@@ -16,7 +16,7 @@ type PendingCapturedPhotoJob = {
 export type PendingCapturedPhoto = PendingCapturedPhotoJob & {
   key: string;
 };
-const INGEST_DEBOUNCE_MS = 1500;
+const INGEST_DEBOUNCE_MS = 300;
 const INGEST_RETRY_DELAY_MS = 5000;
 
 let jobQueue: PendingCapturedPhotoJob[] | null = null;

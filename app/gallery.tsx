@@ -24,6 +24,7 @@ import {
   type PendingCapturedPhoto,
 } from "../lib/photo-ingest-manager";
 import { buildDisplayPhotos, type DisplayPhoto } from "../lib/display-photos";
+import { scheduleAfterInteractions } from "../lib/cooperative";
 import { useFastRoutes, usePrefetchRoutes } from "../lib/use-fast-routes";
 import { useSmartBack } from "../lib/use-smart-back";
 import { useTapGuard } from "../lib/use-tap-guard";
@@ -94,6 +95,7 @@ export default function GalleryScreen() {
   const deferredPhotos = useDeferredValue(displayPhotos);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showUI, setShowUI] = useState(true);
+  const [showFilmstrip, setShowFilmstrip] = useState(false);
   const mainListRef = useRef<FlatList>(null);
   const thumbListRef = useRef<FlatList>(null);
   const currentIndexRef = useRef(0);
@@ -122,6 +124,14 @@ export default function GalleryScreen() {
         setPendingPhotos(entries);
       });
     });
+  }, []);
+
+  useEffect(() => {
+    const cancel = scheduleAfterInteractions(() => {
+      setShowFilmstrip(true);
+    }, 80);
+
+    return cancel;
   }, []);
 
   useEffect(() => {
@@ -245,7 +255,7 @@ export default function GalleryScreen() {
             horizontal
             pagingEnabled
             initialNumToRender={1}
-            maxToRenderPerBatch={2}
+            maxToRenderPerBatch={1}
             windowSize={3}
             removeClippedSubviews
             showsHorizontalScrollIndicator={false}
@@ -278,20 +288,22 @@ export default function GalleryScreen() {
           </Animated.View>
 
           {/* Bottom filmstrip */}
-          <Animated.View
-            style={[styles.bottomBar, { opacity: uiOpacity }]}
-            pointerEvents={showUI ? "auto" : "none"}
-          >
+          {showFilmstrip ? (
+            <Animated.View
+              style={[styles.bottomBar, { opacity: uiOpacity }]}
+              pointerEvents={showUI ? "auto" : "none"}
+            >
             <FlatList
               ref={thumbListRef}
               data={deferredPhotos}
               horizontal
-              initialNumToRender={18}
-              maxToRenderPerBatch={18}
-              windowSize={5}
+              initialNumToRender={8}
+              maxToRenderPerBatch={8}
+              updateCellsBatchingPeriod={16}
+              windowSize={4}
               removeClippedSubviews
               showsHorizontalScrollIndicator={false}
-              keyExtractor={(item) => "thumb_" + item.cidHash}
+              keyExtractor={(item) => "thumb_" + item.key}
               contentContainerStyle={styles.thumbContent}
               onScrollEndDrag={(e) => {
                 const offset = e.nativeEvent.contentOffset.x;
@@ -327,7 +339,8 @@ export default function GalleryScreen() {
                 />
               )}
             />
-          </Animated.View>
+            </Animated.View>
+          ) : null}
         </Animated.View>
       ) : (
         <View style={styles.center}>
