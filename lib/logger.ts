@@ -1,7 +1,24 @@
-// Remote logger — sends logs to the log server on the Mac
-// Falls back to console.log if server isn't reachable
+// Remote logger — sends logs to the dev machine's log server when available.
+// Falls back to console.log if the server isn't reachable.
 
-const LOG_SERVER = "http://172.20.10.4:9999/log";
+import Constants from "expo-constants";
+
+function resolveLogServer() {
+  const hostUri = Constants.expoConfig?.hostUri ?? Constants.platform?.hostUri;
+
+  if (hostUri) {
+    try {
+      const url = new URL(`http://${hostUri}`);
+      return `http://${url.hostname}:9999/log`;
+    } catch {
+      // Ignore malformed development host strings and fall back below.
+    }
+  }
+
+  return "http://localhost:9999/log";
+}
+
+const LOG_SERVER = resolveLogServer();
 const LOG_FLUSH_INTERVAL_MS = 250;
 const MAX_QUEUED_LOGS = 200;
 
