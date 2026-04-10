@@ -1,9 +1,15 @@
 import "../lib/fetch-polyfill";
 import "../lib/crypto-polyfill";
 import "react-native-get-random-values";
+import { useEffect } from "react";
 import { Stack } from "expo-router";
+import { retryPendingMerkleRootPublish } from "../lib/nostr";
 
 export default function RootLayout() {
+  useEffect(() => {
+    retryPendingMerkleRootPublish().catch(() => {});
+  }, []);
+
   return (
     <Stack
       screenOptions={{

@@ -11,7 +11,6 @@ import {
 import { useRouter } from "expo-router";
 import { loadPrivateKey, deletePrivateKey, getNpub } from "../lib/nostr";
 import { clearAllData } from "../lib/storage";
-import { runUploadTest } from "../lib/upload-test";
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -93,20 +92,11 @@ export default function SettingsScreen() {
         <Text style={styles.hint}>
           Share with friends so they can send you photos
         </Text>
+        <Text style={styles.syncHint}>
+          Photo roots publish to Nostr automatically. If relay confirmation fails,
+          the app keeps the latest root queued and retries on the next launch.
+        </Text>
       </View>
-
-      <TouchableOpacity
-        style={[styles.clearButton, { borderColor: "#7B2FF2", marginTop: 20 }]}
-        onPress={async () => {
-          Alert.alert("Running...", "Check logs for results");
-          const key = await loadPrivateKey();
-          if (!key) { Alert.alert("Error", "No key"); return; }
-          const result = await runUploadTest(key);
-          Alert.alert("Test Result", result);
-        }}
-      >
-        <Text style={[styles.clearText, { color: "#7B2FF2" }]}>Run Upload Test</Text>
-      </TouchableOpacity>
 
       <View style={styles.spacer} />
 
@@ -177,6 +167,12 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 13,
     color: "#bbb",
+  },
+  syncHint: {
+    marginTop: 12,
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#666",
   },
   spacer: {
     flex: 1,
