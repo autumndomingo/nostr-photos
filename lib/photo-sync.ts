@@ -20,6 +20,7 @@ import {
   hasLegacyPhotoNames,
   loadPhotoEntries,
   parsePhotoSequence,
+  rememberPhotoDisplayUri,
   replacePhotoEntries,
   type PhotoEntry,
 } from "./storage";
@@ -105,6 +106,7 @@ function writePhotoCache(entry: PhotoEntry, bytes: Uint8Array): void {
   if (!cacheFile.exists) {
     cacheFile.write(bytes);
   }
+  rememberPhotoDisplayUri(entry, cacheFile.uri);
 }
 
 async function resolveRepairPhotoUri(

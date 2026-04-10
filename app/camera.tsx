@@ -16,15 +16,12 @@ import { File, Paths } from "expo-file-system/next";
 import { useRouter } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import {
-  getLocalCachePathForEntry,
   initStorage,
   subscribeToPhotoEntries,
+  getPhotoDisplayUri,
 } from "../lib/storage";
-import { loadPrivateKey } from "../lib/nostr";
-import { ingestPhotoBytes } from "../lib/photo-sync";
-import { queuePhotoRootRemoteSync } from "../lib/photo-remote-sync";
 import { log } from "../lib/logger";
-import { scheduleAfterInteractions } from "../lib/cooperative";
+import { enqueueCapturedPhotoForIngest } from "../lib/photo-ingest-manager";
 
 type ZoomLevel = 0.5 | 1 | 2 | 3;
 type CameraMode = "photo" | "video";
@@ -66,12 +63,9 @@ export default function CameraScreen() {
         return;
       }
 
-      const cached = getLocalCachePathForEntry(entries[0]);
-      if (cached.exists) {
-        startTransition(() => {
-          setLastMediaUri(cached.uri);
-        });
-      }
+      startTransition(() => {
+        setLastMediaUri(getPhotoDisplayUri(entries[0]));
+      });
     });
   }, [cameraGranted]);
 
@@ -163,54 +157,16 @@ export default function CameraScreen() {
         quality: 0.8,
         shutterSound: false,
         onPictureSaved: (photo) => {
+          const pendingUri = enqueueCapturedPhotoForIngest(photo.uri, capturedAt, "jpg");
           startTransition(() => {
-            setLastMediaUri(photo.uri);
+            setLastMediaUri(pendingUri);
           });
-          scheduleAfterInteractions(() => {
-            void uploadInBackground(new File(photo.uri), capturedAt);
-          }, 75);
         },
       });
       setTaking(false);
     } catch (e: any) {
       log("[PHOTO] Save error:", e?.message);
       setTaking(false);
-    }
-  }
-
-  async function uploadInBackground(dest: InstanceType<typeof File>, capturedAt: number) {
-    try {
-      const privateKey = await loadPrivateKey();
-      if (!privateKey) return;
-
-      const photoBytes = await dest.bytes();
-      log("[PHOTO] Uploading", photoBytes.length, "bytes...");
-
-      const result = await ingestPhotoBytes(privateKey, photoBytes, {
-        capturedAt,
-        extension: "jpg",
-        syncToBlossom: false,
-        publishToNostr: false,
-      });
-
-      if (dest.exists) {
-        dest.delete();
-      }
-
-      const cached = getLocalCachePathForEntry(result.entry);
-      if (cached.exists) {
-        setLastMediaUri(cached.uri);
-      }
-
-      if (result.duplicate) {
-        log("[PHOTO] Duplicate photo skipped");
-        return;
-      }
-
-      log("[PHOTO] Saved locally as", result.entry.name);
-      queuePhotoRootRemoteSync("camera");
-    } catch (e: any) {
-      log("[PHOTO] Upload error:", e?.message);
     }
   }
 

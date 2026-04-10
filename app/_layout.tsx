@@ -17,6 +17,7 @@ import {
   subscribeToPhotoImport,
 } from "../lib/photo-import-manager";
 import { resumePendingPhotoRootRemoteSync } from "../lib/photo-remote-sync";
+import { resumePendingPhotoIngest } from "../lib/photo-ingest-manager";
 import { scheduleAfterInteractions } from "../lib/cooperative";
 
 export default function RootLayout() {
@@ -40,10 +41,14 @@ export default function RootLayout() {
       const privateKey = await loadPrivateKey().catch(() => null);
 
       deferTask(500, () => {
+        resumePendingPhotoIngest().catch(() => {});
+      });
+
+      deferTask(1100, () => {
         resumePendingPhotoRootRemoteSync().catch(() => {});
       });
 
-      deferTask(1500, () => {
+      deferTask(1900, () => {
         resumePendingPhotoImport().catch(() => {});
       });
 
@@ -69,9 +74,12 @@ export default function RootLayout() {
     const appStateSubscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active") {
         deferTask(300, () => {
+          resumePendingPhotoIngest().catch(() => {});
+        });
+        deferTask(900, () => {
           resumePendingPhotoRootRemoteSync().catch(() => {});
         });
-        deferTask(1200, () => {
+        deferTask(1600, () => {
           resumePendingPhotoImport().catch(() => {});
         });
       }

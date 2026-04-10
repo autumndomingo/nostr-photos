@@ -13,10 +13,10 @@ import {
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import {
-  getLocalCachePathForEntry,
   loadPhotoEntries,
   PhotoEntry,
   subscribeToPhotoEntries,
+  getPhotoDisplayUri,
 } from "../lib/storage";
 import { log } from "../lib/logger";
 
@@ -29,7 +29,6 @@ const THUMB_TOTAL = THUMB_WIDTH + THUMB_GAP;
 export default function GalleryScreen() {
   const router = useRouter();
   const [photos, setPhotos] = useState<PhotoEntry[]>(() => loadPhotoEntries());
-  const [photoUris, setPhotoUris] = useState<Record<string, string>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showUI, setShowUI] = useState(true);
   const mainListRef = useRef<FlatList>(null);
@@ -47,17 +46,6 @@ export default function GalleryScreen() {
     return subscribeToPhotoEntries((entries) => {
       startTransition(() => {
         setPhotos(entries);
-        setPhotoUris(
-          Object.fromEntries(
-            entries.map((entry) => {
-              const cached = getLocalCachePathForEntry(entry);
-              return [
-                entry.cidHash,
-                cached.exists ? cached.uri : `https://blossom.primal.net/${entry.cidHash}`,
-              ];
-            })
-          )
-        );
       });
     });
   }, []);
@@ -198,11 +186,7 @@ export default function GalleryScreen() {
             renderItem={({ item }) => (
               <Pressable style={styles.slide} onPress={toggleUI}>
                 <Image
-                  source={{
-                    uri:
-                      photoUris[item.cidHash] ||
-                      `https://blossom.primal.net/${item.cidHash}`,
-                  }}
+                  source={{ uri: getPhotoDisplayUri(item) }}
                   style={styles.image}
                   contentFit="contain"
                 />
@@ -267,11 +251,7 @@ export default function GalleryScreen() {
                   ]}
                 >
                   <Image
-                    source={{
-                      uri:
-                        photoUris[item.cidHash] ||
-                        `https://blossom.primal.net/${item.cidHash}`,
-                    }}
+                    source={{ uri: getPhotoDisplayUri(item) }}
                     style={styles.thumbImage}
                   />
                 </TouchableOpacity>

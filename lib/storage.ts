@@ -18,6 +18,7 @@ const PHOTO_DB_FILE = new File(Paths.document, "photos.json");
 const SEQUENTIAL_PHOTO_NAME_RE = /^photo_(\d{6,})\.[a-z0-9]+$/i;
 let photoEntriesCache: PhotoEntry[] | null = null;
 const photoEntryListeners = new Set<(entries: PhotoEntry[]) => void>();
+const photoUriCache = new Map<string, string>();
 
 export function initStorage(): void {
   if (!PHOTOS_DIR.exists) {
@@ -136,6 +137,7 @@ export function clearAllData(): void {
   if (PHOTO_DB_FILE.exists) PHOTO_DB_FILE.delete();
   if (PHOTOS_DIR.exists) PHOTOS_DIR.delete();
   photoEntriesCache = [];
+  photoUriCache.clear();
   emitPhotoEntries([]);
 }
 
@@ -268,6 +270,28 @@ export function getLocalCachePathForEntry(entry: PhotoEntry): File {
     entry.cidHash,
     entry.cacheExtension || extractFileExtension(entry.name)
   );
+}
+
+export function rememberPhotoDisplayUri(entry: PhotoEntry, uri: string): void {
+  photoUriCache.set(entry.cidHash, uri);
+}
+
+export function forgetPhotoDisplayUri(cidHash: string): void {
+  photoUriCache.delete(cidHash);
+}
+
+export function getPhotoDisplayUri(entry: PhotoEntry): string {
+  const cachedUri = photoUriCache.get(entry.cidHash);
+  if (cachedUri) {
+    return cachedUri;
+  }
+
+  const localFile = getLocalCachePathForEntry(entry);
+  const uri = localFile.exists
+    ? localFile.uri
+    : `https://blossom.primal.net/${entry.cidHash}`;
+  photoUriCache.set(entry.cidHash, uri);
+  return uri;
 }
 
 export function isPhotoCached(cidHash: string, extension = "jpg"): boolean {

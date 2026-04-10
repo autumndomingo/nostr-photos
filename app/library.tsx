@@ -10,10 +10,10 @@ import {
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import {
-  getLocalCachePathForEntry,
   loadPhotoEntries,
   PhotoEntry,
   subscribeToPhotoEntries,
+  getPhotoDisplayUri,
 } from "../lib/storage";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -24,23 +24,11 @@ const TILE_SIZE = (SCREEN_WIDTH - TILE_GAP * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
 export default function LibraryScreen() {
   const router = useRouter();
   const [photos, setPhotos] = useState<PhotoEntry[]>(() => loadPhotoEntries());
-  const [photoUris, setPhotoUris] = useState<Record<string, string>>({});
 
   useEffect(() => {
     return subscribeToPhotoEntries((entries) => {
       startTransition(() => {
         setPhotos(entries);
-        setPhotoUris(
-          Object.fromEntries(
-            entries.map((entry) => {
-              const cached = getLocalCachePathForEntry(entry);
-              return [
-                entry.cidHash,
-                cached.exists ? cached.uri : `https://blossom.primal.net/${entry.cidHash}`,
-              ];
-            })
-          )
-        );
       });
     });
   }, []);
@@ -70,11 +58,7 @@ export default function LibraryScreen() {
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.tile}>
             <Image
-              source={{
-                uri:
-                  photoUris[item.cidHash] ||
-                  `https://blossom.primal.net/${item.cidHash}`,
-              }}
+              source={{ uri: getPhotoDisplayUri(item) }}
               style={styles.tileImage}
             />
           </TouchableOpacity>
