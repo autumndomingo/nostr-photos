@@ -18,6 +18,7 @@ import {
   getLocalCachePathForEntry,
   initStorage,
   loadPhotoEntries,
+  subscribeToPhotoEntries,
 } from "../lib/storage";
 import { loadPrivateKey } from "../lib/nostr";
 import { ingestPhotoBytes } from "../lib/photo-sync";
@@ -46,8 +47,25 @@ export default function CameraScreen() {
   useEffect(() => {
     if (cameraGranted) {
       setReady(true);
-      loadLastMedia();
     }
+  }, [cameraGranted]);
+
+  useEffect(() => {
+    if (!cameraGranted) {
+      return;
+    }
+
+    return subscribeToPhotoEntries((entries) => {
+      if (entries.length === 0) {
+        setLastMediaUri(null);
+        return;
+      }
+
+      const cached = getLocalCachePathForEntry(entries[0]);
+      if (cached.exists) {
+        setLastMediaUri(cached.uri);
+      }
+    });
   }, [cameraGranted]);
 
   // Pulse animation for recording indicator
@@ -73,18 +91,6 @@ export default function CameraScreen() {
       recordPulse.setValue(1);
     }
   }, [recording]);
-
-  function loadLastMedia() {
-    try {
-      const entries = loadPhotoEntries();
-      if (entries.length > 0) {
-        const cached = getLocalCachePathForEntry(entries[0]);
-        if (cached.exists) {
-          setLastMediaUri(cached.uri);
-        }
-      }
-    } catch {}
-  }
 
   // Still loading permission status
   if (!cameraPermission) {

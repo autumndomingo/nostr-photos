@@ -17,6 +17,7 @@ const PHOTOS_DIR = new Directory(Paths.document, "photos");
 const PHOTO_DB_FILE = new File(Paths.document, "photos.json");
 const SEQUENTIAL_PHOTO_NAME_RE = /^photo_(\d{6,})\.[a-z0-9]+$/i;
 let photoEntriesCache: PhotoEntry[] | null = null;
+const photoEntryListeners = new Set<(entries: PhotoEntry[]) => void>();
 
 export function initStorage(): void {
   if (!PHOTOS_DIR.exists) {
@@ -103,6 +104,13 @@ function normalizePhotoEntry(raw: any): PhotoEntry | null {
   };
 }
 
+function emitPhotoEntries(entries: PhotoEntry[]): void {
+  const snapshot = [...entries];
+  for (const listener of photoEntryListeners) {
+    listener(snapshot);
+  }
+}
+
 export function loadPhotoEntries(): PhotoEntry[] {
   if (photoEntriesCache) {
     return [...photoEntriesCache];
@@ -128,12 +136,14 @@ export function clearAllData(): void {
   if (PHOTO_DB_FILE.exists) PHOTO_DB_FILE.delete();
   if (PHOTOS_DIR.exists) PHOTOS_DIR.delete();
   photoEntriesCache = [];
+  emitPhotoEntries([]);
 }
 
 function savePhotoEntries(entries: PhotoEntry[]): void {
   const sortedEntries = sortPhotoEntries(entries);
   PHOTO_DB_FILE.write(JSON.stringify(sortedEntries));
   photoEntriesCache = sortedEntries;
+  emitPhotoEntries(sortedEntries);
 }
 
 export function replacePhotoEntries(entries: PhotoEntry[]): void {
@@ -262,6 +272,17 @@ export function getLocalCachePathForEntry(entry: PhotoEntry): File {
 
 export function isPhotoCached(cidHash: string, extension = "jpg"): boolean {
   return getLocalCachePath(cidHash, extension).exists;
+}
+
+export function subscribeToPhotoEntries(
+  listener: (entries: PhotoEntry[]) => void
+): () => void {
+  photoEntryListeners.add(listener);
+  listener(loadPhotoEntries());
+
+  return () => {
+    photoEntryListeners.delete(listener);
+  };
 }
 
 // Reconstruct a CID from stored hex strings

@@ -80,7 +80,7 @@ export default function RootLayout() {
       <Stack.Screen name="settings" options={{ title: "Profile" }} />
       <Stack.Screen name="camera" options={{ title: "Camera", headerShown: false }} />
       <Stack.Screen name="preview" options={{ title: "Photo Preview" }} />
-      <Stack.Screen name="gallery" options={{ title: "Library", headerShown: false, presentation: "transparentModal", animation: "fade" }} />
+      <Stack.Screen name="gallery" options={{ title: "Library", headerShown: false }} />
       <Stack.Screen name="library" options={{ title: "All Photos", headerShown: false }} />
     </Stack>
   );

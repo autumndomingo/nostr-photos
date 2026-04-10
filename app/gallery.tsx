@@ -1,10 +1,9 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   View,
   TouchableOpacity,
   Text,
   StyleSheet,
-  ActivityIndicator,
   Dimensions,
   FlatList,
   PanResponder,
@@ -12,11 +11,12 @@ import {
   Animated,
 } from "react-native";
 import { Image } from "expo-image";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter } from "expo-router";
 import {
   getLocalCachePathForEntry,
   loadPhotoEntries,
   PhotoEntry,
+  subscribeToPhotoEntries,
 } from "../lib/storage";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -27,8 +27,8 @@ const THUMB_TOTAL = THUMB_WIDTH + THUMB_GAP;
 
 export default function GalleryScreen() {
   const router = useRouter();
-  const [photos, setPhotos] = useState<PhotoEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [photos, setPhotos] = useState<PhotoEntry[]>(() => loadPhotoEntries());
+  const [photoUris, setPhotoUris] = useState<Record<string, string>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showUI, setShowUI] = useState(true);
   const mainListRef = useRef<FlatList>(null);
@@ -40,23 +40,33 @@ export default function GalleryScreen() {
   photosRef.current = photos;
   currentIndexRef.current = currentIndex;
 
-  useFocusEffect(
-    useCallback(() => {
-      const entries = loadPhotoEntries();
+  useEffect(() => {
+    return subscribeToPhotoEntries((entries) => {
       setPhotos(entries);
-      setCurrentIndex(0);
-      setLoading(false);
-    }, [])
-  );
+      setPhotoUris(
+        Object.fromEntries(
+          entries.map((entry) => {
+            const cached = getLocalCachePathForEntry(entry);
+            return [
+              entry.cidHash,
+              cached.exists ? cached.uri : `https://blossom.primal.net/${entry.cidHash}`,
+            ];
+          })
+        )
+      );
+    });
+  }, []);
 
-  function getPhotoUri(entry: PhotoEntry): string {
-    const cached = getLocalCachePathForEntry(entry);
-    if (cached.exists) {
-      return cached.uri;
+  useEffect(() => {
+    if (photos.length === 0) {
+      setCurrentIndex(0);
+      return;
     }
-    // Fall back to Blossom URL by hash
-    return `https://blossom.primal.net/${entry.cidHash}`;
-  }
+
+    if (currentIndex >= photos.length) {
+      setCurrentIndex(photos.length - 1);
+    }
+  }, [currentIndex, photos.length]);
 
   function jumpToPhoto(index: number) {
     const total = photosRef.current.length;
@@ -134,11 +144,7 @@ export default function GalleryScreen() {
 
   return (
     <View style={styles.container}>
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#FFD60A" />
-        </View>
-      ) : photos.length > 0 ? (
+      {photos.length > 0 ? (
         <Animated.View
           style={[
             styles.content,
@@ -167,7 +173,11 @@ export default function GalleryScreen() {
             renderItem={({ item }) => (
               <Pressable style={styles.slide} onPress={toggleUI}>
                 <Image
-                  source={{ uri: getPhotoUri(item) }}
+                  source={{
+                    uri:
+                      photoUris[item.cidHash] ||
+                      `https://blossom.primal.net/${item.cidHash}`,
+                  }}
                   style={styles.image}
                   contentFit="contain"
                 />
@@ -228,7 +238,11 @@ export default function GalleryScreen() {
                   ]}
                 >
                   <Image
-                    source={{ uri: getPhotoUri(item) }}
+                    source={{
+                      uri:
+                        photoUris[item.cidHash] ||
+                        `https://blossom.primal.net/${item.cidHash}`,
+                    }}
                     style={styles.thumbImage}
                   />
                 </TouchableOpacity>
@@ -254,12 +268,11 @@ export default function GalleryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "transparent",
+    backgroundColor: "#000",
   },
   content: {
     flex: 1,
     backgroundColor: "#000",
-    borderRadius: 10,
     overflow: "hidden",
   },
   mainList: {

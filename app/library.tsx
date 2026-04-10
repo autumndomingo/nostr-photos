@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   TouchableOpacity,
@@ -8,11 +8,12 @@ import {
   Dimensions,
 } from "react-native";
 import { Image } from "expo-image";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter } from "expo-router";
 import {
   getLocalCachePathForEntry,
   loadPhotoEntries,
   PhotoEntry,
+  subscribeToPhotoEntries,
 } from "../lib/storage";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -22,21 +23,25 @@ const TILE_SIZE = (SCREEN_WIDTH - TILE_GAP * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
 
 export default function LibraryScreen() {
   const router = useRouter();
-  const [photos, setPhotos] = useState<PhotoEntry[]>([]);
+  const [photos, setPhotos] = useState<PhotoEntry[]>(() => loadPhotoEntries());
+  const [photoUris, setPhotoUris] = useState<Record<string, string>>({});
 
-  useFocusEffect(
-    useCallback(() => {
-      setPhotos(loadPhotoEntries());
-    }, [])
-  );
-
-  function getPhotoUri(entry: PhotoEntry): string {
-    const cached = getLocalCachePathForEntry(entry);
-    if (cached.exists) {
-      return cached.uri;
-    }
-    return `https://blossom.primal.net/${entry.cidHash}`;
-  }
+  useEffect(() => {
+    return subscribeToPhotoEntries((entries) => {
+      setPhotos(entries);
+      setPhotoUris(
+        Object.fromEntries(
+          entries.map((entry) => {
+            const cached = getLocalCachePathForEntry(entry);
+            return [
+              entry.cidHash,
+              cached.exists ? cached.uri : `https://blossom.primal.net/${entry.cidHash}`,
+            ];
+          })
+        )
+      );
+    });
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -58,7 +63,14 @@ export default function LibraryScreen() {
         }
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.tile}>
-            <Image source={{ uri: getPhotoUri(item) }} style={styles.tileImage} />
+            <Image
+              source={{
+                uri:
+                  photoUris[item.cidHash] ||
+                  `https://blossom.primal.net/${item.cidHash}`,
+              }}
+              style={styles.tileImage}
+            />
           </TouchableOpacity>
         )}
       />
