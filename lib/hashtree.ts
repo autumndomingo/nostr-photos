@@ -1,16 +1,25 @@
+/**
+ * HashTree integration — singleton pattern like iris-files.
+ *
+ * Key insight from iris: the tree and local store persist across operations.
+ * When adding a new photo, setEntry reads the old directory from the LOCAL
+ * store (not Blossom), so it always works. Blossom is only used for pushing
+ * data out and for other clients to read.
+ */
 import {
   HashTree,
-  MemoryStore,
   BlossomStore,
   FallbackStore,
   LinkType,
   toHex,
+  fromHex,
+  cid,
   type CID,
   type BlossomSigner,
 } from "@hashtree/core";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
-import { bytesToHex } from "nostr-tools/utils";
 import { File, Paths } from "expo-file-system/next";
+import { FileStore } from "./file-store";
 import { log } from "./logger";
 
 const BLOSSOM_SERVERS = [
@@ -21,10 +30,14 @@ const BLOSSOM_SERVERS = [
 
 const ROOT_FILE = new File(Paths.document, "tree-root.json");
 
-// Create a Blossom signer from a Nostr private key
+// ---- Singleton state ----
+let _fileStore: FileStore | null = null;
+let _blossomStore: BlossomStore | null = null;
+let _tree: HashTree | null = null;
+let _currentPrivateKey: Uint8Array | null = null;
+
 function createSigner(privateKey: Uint8Array): BlossomSigner {
   return async (draft) => {
-    log("[SIGNER] Signing event kind:", draft.kind, "tags:", JSON.stringify(draft.tags));
     try {
       const event = finalizeEvent(
         {
@@ -35,7 +48,6 @@ function createSigner(privateKey: Uint8Array): BlossomSigner {
         },
         privateKey
       );
-      log("[SIGNER] Signed OK, event id:", (event as any).id?.slice(0, 16));
       return event as any;
     } catch (e: any) {
       log("[SIGNER] FAILED:", e?.message);
@@ -44,34 +56,56 @@ function createSigner(privateKey: Uint8Array): BlossomSigner {
   };
 }
 
-// Create a HashTree instance backed by Blossom
-export function createHashTree(privateKey: Uint8Array): {
+/**
+ * Get or create the singleton HashTree instance.
+ * The FileStore persists all tree data locally, so setEntry
+ * can always read previous directories without hitting Blossom.
+ */
+export function getHashTree(privateKey: Uint8Array): {
   tree: HashTree;
   blossomStore: BlossomStore;
 } {
-  const signer = createSigner(privateKey);
+  // Reinitialize if key changed
+  const keyHex = toHex(privateKey);
+  const currentKeyHex = _currentPrivateKey ? toHex(_currentPrivateKey) : null;
 
-  const blossomStore = new BlossomStore({
+  if (_tree && _blossomStore && keyHex === currentKeyHex) {
+    return { tree: _tree, blossomStore: _blossomStore };
+  }
+
+  _currentPrivateKey = privateKey;
+  _fileStore = new FileStore();
+
+  _blossomStore = new BlossomStore({
     servers: BLOSSOM_SERVERS,
-    signer,
+    signer: createSigner(privateKey),
     logger: (entry) => {
-      log(`[BLOSSOM] ${entry.operation} ${entry.hash?.slice(0, 12)}... ${entry.server} ${entry.success ? "OK" : "FAIL"} ${entry.error || ""} ${entry.bytes ? entry.bytes + "b" : ""}`);
+      if (!entry.success || entry.operation === "put") {
+        const serverLabel = entry.server.includes("//")
+          ? entry.server.split("//")[1]
+          : entry.server;
+        const bytesLabel =
+          typeof entry.bytes === "number" ? `${entry.bytes}b` : "";
+        log(
+          `[BLOSSOM] ${entry.operation} ${entry.hash?.slice(0, 12)}... ${serverLabel} ${entry.success ? "OK" : "FAIL"} ${entry.error || ""} ${bytesLabel}`
+        );
+      }
     },
   });
 
-  const localStore = new MemoryStore();
-
+  // FallbackStore: local FileStore is primary (always has tree data),
+  // Blossom is fallback for data we don't have locally yet
   const store = new FallbackStore({
-    primary: localStore,
-    fallbacks: [blossomStore],
+    primary: _fileStore,
+    fallbacks: [_blossomStore],
   });
 
-  const tree = new HashTree({ store });
+  _tree = new HashTree({ store });
 
-  return { tree, blossomStore };
+  return { tree: _tree, blossomStore: _blossomStore };
 }
 
-// Save the root CID locally so we can reload the tree
+// Save the root CID locally
 export function saveRootCID(rootCid: CID): void {
   const data = {
     hash: toHex(rootCid.hash),
@@ -87,29 +121,33 @@ export function loadRootCID(): CID | null {
     const text = ROOT_FILE.textSync();
     const data = JSON.parse(text);
     if (!data.hash) return null;
-
-    const { fromHex, cid } = require("@hashtree/core");
     return cid(fromHex(data.hash), data.key ? fromHex(data.key) : undefined);
   } catch {
     return null;
   }
 }
 
-// Add a photo to the tree, returns the new root CID
+/**
+ * Add a photo to the tree.
+ * Because FileStore persists locally, setEntry can always read the
+ * previous directory — no Blossom fetch needed for tree operations.
+ * Push to Blossom happens after the tree is updated.
+ */
 export async function addPhotoToTree(
-  tree: HashTree,
-  blossomStore: BlossomStore,
+  privateKey: Uint8Array,
   photoData: Uint8Array,
-  fileName: string,
-  currentRoot: CID | null
-): Promise<{ rootCid: CID; fileCid: CID }> {
+  fileName: string
+): Promise<{ rootCid: CID; fileCid: CID; remoteSynced: boolean }> {
+  const { tree, blossomStore } = getHashTree(privateKey);
+  const currentRoot = loadRootCID();
+
   // Store the file (encrypted by default with CHK)
   const { cid: fileCid, size } = await tree.putFile(photoData);
 
   let rootCid: CID;
 
   if (currentRoot) {
-    // Add to existing directory
+    // Add to existing directory — reads from local FileStore
     rootCid = await tree.setEntry(
       currentRoot,
       [],
@@ -119,32 +157,34 @@ export async function addPhotoToTree(
       LinkType.File
     );
   } else {
-    // Create a new directory with this file
+    // First photo — create new directory
     const { cid: dirCid } = await tree.putDirectory([
       { name: fileName, cid: fileCid, size, type: LinkType.File },
     ]);
     rootCid = dirCid;
   }
 
-  // Push all new chunks to Blossom
+  // Save new root locally
+  saveRootCID(rootCid);
+
   const pushResult = await tree.push(rootCid, blossomStore, {
     concurrency: 4,
     onBlock: (hash, status, error) => {
-      const { toHex } = require("@hashtree/core");
-      const h = toHex(hash).slice(0, 12);
-      if (error) {
-        log(`[PUSH] ${h}... ${status}: ${error.message}`);
-      } else {
-        log(`[PUSH] ${h}... ${status}`);
+      if (status === "error") {
+        log(`[PUSH] ${toHex(hash).slice(0, 12)}... ${status}: ${error?.message}`);
       }
     },
   });
-  console.log(`[PUSH] Done: pushed=${pushResult.pushed} skipped=${pushResult.skipped} failed=${pushResult.failed} bytes=${pushResult.bytes}`);
 
-  // Save root locally
-  saveRootCID(rootCid);
+  log(
+    `[PUSH] Done: pushed=${pushResult.pushed} skipped=${pushResult.skipped} failed=${pushResult.failed}`
+  );
 
-  return { rootCid, fileCid };
+  return {
+    rootCid,
+    fileCid,
+    remoteSynced: pushResult.failed === 0 && !pushResult.cancelled,
+  };
 }
 
 // Get the root CID key hex for publishing in Nostr events
@@ -155,19 +195,12 @@ export function getRootKeyHex(rootCid: CID): string | undefined {
 
 // List all photos in the tree
 export async function listPhotos(
-  tree: HashTree,
+  privateKey: Uint8Array,
   rootCid: CID
 ): Promise<Array<{ name: string; cid: CID; size: number }>> {
+  const { tree } = getHashTree(privateKey);
   const entries = await tree.listDirectory(rootCid);
   return entries
     .filter((e) => e.type === LinkType.File)
     .map((e) => ({ name: e.name, cid: e.cid, size: e.size }));
-}
-
-// Read a photo from the tree
-export async function readPhoto(
-  tree: HashTree,
-  fileCid: CID
-): Promise<Uint8Array | null> {
-  return tree.readFile(fileCid);
 }

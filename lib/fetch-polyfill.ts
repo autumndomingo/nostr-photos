@@ -10,8 +10,34 @@ import { File, Paths } from "expo-file-system/next";
 
 const blobDataMap = new WeakMap<Blob, Uint8Array>();
 const OriginalBlob = globalThis.Blob;
+const AbortSignalCtor = globalThis.AbortSignal as
+  | (typeof AbortSignal & { timeout?: (ms: number) => AbortSignal })
+  | undefined;
 
 let uploadCounter = 0;
+
+if (
+  AbortSignalCtor &&
+  typeof globalThis.AbortController !== "undefined" &&
+  typeof AbortSignalCtor.timeout !== "function"
+) {
+  AbortSignalCtor.timeout = (ms: number): AbortSignal => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, ms);
+
+    controller.signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeoutId);
+      },
+      { once: true }
+    );
+
+    return controller.signal;
+  };
+}
 
 class TrackedBlob extends OriginalBlob {
   constructor(parts?: BlobPart[], options?: BlobPropertyBag) {

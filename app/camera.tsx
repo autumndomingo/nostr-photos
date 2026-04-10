@@ -18,15 +18,14 @@ import { useRouter } from "expo-router";
 import { addPhotoEntry, loadPhotoEntries, initStorage } from "../lib/storage";
 import { loadPrivateKey, publishMerkleRoot } from "../lib/nostr";
 import {
-  createHashTree,
   addPhotoToTree,
-  loadRootCID,
   getRootKeyHex,
 } from "../lib/hashtree";
 import { log } from "../lib/logger";
 
 type ZoomLevel = 0.5 | 1 | 2 | 3;
 type CameraMode = "photo" | "video";
+let uploadQueue: Promise<void> = Promise.resolve();
 
 export default function CameraScreen() {
   const router = useRouter();
@@ -42,7 +41,6 @@ export default function CameraScreen() {
   const [zoom, setZoom] = useState<ZoomLevel>(1);
   const [lastMediaUri, setLastMediaUri] = useState<string | null>(null);
   const [mode, setMode] = useState<CameraMode>("photo");
-  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const recordPulse = useRef(new Animated.Value(1)).current;
   const lastTap = useRef<number>(0);
 
@@ -156,81 +154,77 @@ export default function CameraScreen() {
   async function takePhoto() {
     if (!cameraRef.current || taking) return;
     setTaking(true);
-    setUploadStatus("Saving...");
-    log("[PHOTO] Taking photo...");
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
       if (!photo) {
-        log("[PHOTO] No photo returned from camera");
         setTaking(false);
-        setUploadStatus(null);
         return;
       }
-      log("[PHOTO] Photo taken:", photo.uri);
 
-      // Save locally first
+      // Save locally — this is instant
       initStorage();
       const fileName = `photo_${Date.now()}.jpg`;
       const source = new File(photo.uri);
       const dest = new File(Paths.document, "photos", fileName);
       source.copy(dest);
       setLastMediaUri(dest.uri);
-      // Upload to Blossom via HashTree
-      setUploadStatus("Uploading...");
-      const privateKey = await loadPrivateKey();
-      if (!privateKey) {
-        log("[PHOTO] No private key found");
-        setUploadStatus("No key found");
-        return;
-      }
 
-      const photoBytes = await dest.bytes();
-      log("[PHOTO] Uploading", photoBytes.length, "bytes to Blossom...");
+      // Camera is ready for the next shot immediately
+      setTaking(false);
 
-      const { tree, blossomStore } = createHashTree(privateKey);
-      const currentRoot = loadRootCID();
-      const { rootCid, fileCid } = await addPhotoToTree(
-        tree,
-        blossomStore,
-        photoBytes,
-        fileName,
-        currentRoot
-      );
-      // Save entry to local photo list
-      addPhotoEntry(fileName, fileCid, photoBytes.length);
-
-      const { toHex } = require("@hashtree/core");
-      const cidHash = toHex(fileCid.hash);
-      const cached = new File(Paths.document, "photos", `${cidHash}.jpg`);
-      if (!cached.exists) {
-        dest.copy(cached);
-      }
-
-      setLastMediaUri(cached.uri);
-      setUploadStatus("Stored! Publishing...");
-
-      // Publish Merkle root to Nostr
-      const rootHex = toHex(rootCid.hash);
-      const rootKeyHex = getRootKeyHex(rootCid);
-      const entries = loadPhotoEntries();
-      try {
-        await publishMerkleRoot(privateKey, rootHex, entries.length, rootKeyHex);
-        log("[PHOTO] Done! Root:", rootHex.slice(0, 16) + "...", "Photos:", entries.length);
-        setUploadStatus("Done! ✓");
-      } catch (pubErr: any) {
-        log("[PHOTO] Publish failed:", pubErr?.message);
-        setUploadStatus("Saved, publish failed");
-      }
-
-      setTimeout(() => setUploadStatus(null), 1500);
+      // Queue uploads so each new root builds on the previous one.
+      uploadInBackground(dest, fileName);
     } catch (e: any) {
-      log("[PHOTO] UPLOAD ERROR:", e?.message);
-      log("[PHOTO] Stack:", e?.stack);
-      setUploadStatus(e?.message?.slice(0, 40) || "Upload failed");
-      setTimeout(() => setUploadStatus(null), 4000);
-    } finally {
+      log("[PHOTO] Save error:", e?.message);
       setTaking(false);
     }
+  }
+
+  async function uploadInBackground(dest: InstanceType<typeof File>, fileName: string) {
+    uploadQueue = uploadQueue
+      .catch(() => {})
+      .then(async () => {
+        try {
+          const privateKey = await loadPrivateKey();
+          if (!privateKey) return;
+
+          const photoBytes = await dest.bytes();
+          log("[PHOTO] Uploading", photoBytes.length, "bytes...");
+
+          const { rootCid, fileCid, remoteSynced } = await addPhotoToTree(
+            privateKey,
+            photoBytes,
+            fileName
+          );
+
+          addPhotoEntry(fileName, fileCid, photoBytes.length);
+
+          const { toHex } = require("@hashtree/core");
+          const cidHash = toHex(fileCid.hash);
+          const cached = new File(Paths.document, "photos", `${cidHash}.jpg`);
+          if (!cached.exists) {
+            dest.copy(cached);
+          }
+          setLastMediaUri(cached.uri);
+
+          if (!remoteSynced) {
+            log("[PHOTO] Blossom sync incomplete; skipping Nostr publish for now");
+            return;
+          }
+
+          const rootHex = toHex(rootCid.hash);
+          const rootKeyHex = getRootKeyHex(rootCid);
+          const entries = loadPhotoEntries();
+          try {
+            await publishMerkleRoot(privateKey, rootHex, entries.length, rootKeyHex);
+            log("[PHOTO] Done! Root:", rootHex.slice(0, 16) + "...", "Photos:", entries.length);
+          } catch (pubErr: any) {
+            log("[PHOTO] Publish failed:", pubErr?.message);
+          }
+        } catch (e: any) {
+          log("[PHOTO] Upload error:", e?.message);
+        }
+      });
   }
 
   async function startRecording() {
@@ -308,12 +302,6 @@ export default function CameraScreen() {
         </Animated.View>
       )}
 
-      {/* Upload status */}
-      {uploadStatus && !recording && (
-        <View style={styles.uploadBadge}>
-          <Text style={styles.uploadText}>{uploadStatus}</Text>
-        </View>
-      )}
 
       {/* Top bar */}
       <View style={styles.topBar}>
