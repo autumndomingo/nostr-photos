@@ -2,7 +2,7 @@ import "../lib/fetch-polyfill";
 import "../lib/crypto-polyfill";
 import "react-native-get-random-values";
 import { useEffect } from "react";
-import { Alert, AppState } from "react-native";
+import { Alert, AppState, InteractionManager } from "react-native";
 import { Stack } from "expo-router";
 import {
   loadPrivateKey,
@@ -19,15 +19,21 @@ import {
 
 export default function RootLayout() {
   useEffect(() => {
+    let cancelled = false;
+    let importCompletionShown = false;
+
     const initialize = async () => {
-      try {
-        await retryPendingMerkleRootPublish();
-        const privateKey = await loadPrivateKey();
-        if (privateKey) {
-          await ensureSequentialPhotoLibrary(privateKey);
-          await ensureIrisCompatiblePhotoLibrary(privateKey);
+      const privateKey = await loadPrivateKey().catch(() => null);
+
+      InteractionManager.runAfterInteractions(() => {
+        if (cancelled || !privateKey) {
+          return;
         }
-      } catch {}
+
+        retryPendingMerkleRootPublish(privateKey).catch(() => {});
+        ensureSequentialPhotoLibrary(privateKey).catch(() => {});
+        ensureIrisCompatiblePhotoLibrary(privateKey).catch(() => {});
+      });
 
       resumePendingPhotoImport().catch(() => {});
     };
@@ -41,12 +47,22 @@ export default function RootLayout() {
     });
 
     const unsubscribeImport = subscribeToPhotoImport((snapshot) => {
-      if (snapshot.result?.status === "completed" && !snapshot.active) {
+      if (snapshot.active) {
+        importCompletionShown = false;
+      }
+
+      if (
+        snapshot.result?.status === "completed" &&
+        !snapshot.active &&
+        !importCompletionShown
+      ) {
+        importCompletionShown = true;
         Alert.alert("uplaoding done");
       }
     });
 
     return () => {
+      cancelled = true;
       appStateSubscription.remove();
       unsubscribeImport();
     };

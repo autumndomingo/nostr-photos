@@ -16,6 +16,7 @@ export type PhotoEntry = {
 const PHOTOS_DIR = new Directory(Paths.document, "photos");
 const PHOTO_DB_FILE = new File(Paths.document, "photos.json");
 const SEQUENTIAL_PHOTO_NAME_RE = /^photo_(\d{6,})\.[a-z0-9]+$/i;
+let photoEntriesCache: PhotoEntry[] | null = null;
 
 export function initStorage(): void {
   if (!PHOTOS_DIR.exists) {
@@ -103,15 +104,20 @@ function normalizePhotoEntry(raw: any): PhotoEntry | null {
 }
 
 export function loadPhotoEntries(): PhotoEntry[] {
+  if (photoEntriesCache) {
+    return [...photoEntriesCache];
+  }
   if (!PHOTO_DB_FILE.exists) return [];
   try {
     const text = PHOTO_DB_FILE.textSync();
     const raw = JSON.parse(text) as any[];
-    return sortPhotoEntries(
+    const entries = sortPhotoEntries(
       raw
         .map(normalizePhotoEntry)
         .filter((entry): entry is PhotoEntry => entry !== null)
     );
+    photoEntriesCache = entries;
+    return [...entries];
   } catch {
     return [];
   }
@@ -121,10 +127,13 @@ export function loadPhotoEntries(): PhotoEntry[] {
 export function clearAllData(): void {
   if (PHOTO_DB_FILE.exists) PHOTO_DB_FILE.delete();
   if (PHOTOS_DIR.exists) PHOTOS_DIR.delete();
+  photoEntriesCache = [];
 }
 
 function savePhotoEntries(entries: PhotoEntry[]): void {
-  PHOTO_DB_FILE.write(JSON.stringify(sortPhotoEntries(entries)));
+  const sortedEntries = sortPhotoEntries(entries);
+  PHOTO_DB_FILE.write(JSON.stringify(sortedEntries));
+  photoEntriesCache = sortedEntries;
 }
 
 export function replacePhotoEntries(entries: PhotoEntry[]): void {

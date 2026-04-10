@@ -240,6 +240,12 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
+      <View style={styles.topActions}>
+        <TouchableOpacity style={styles.topLogoutButton} onPress={handleLogout}>
+          <Text style={styles.topLogoutText}>Log Out</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Public Key</Text>
         <TouchableOpacity style={styles.npubRow} onPress={handleCopyNpub}>
@@ -296,10 +302,6 @@ export default function SettingsScreen() {
         <Text style={styles.clearText}>Clear Photo Data</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Log Out</Text>
-      </TouchableOpacity>
-
       {importProgress ? (
         <View style={styles.progressDock}>
           <View style={styles.progressHeader}>
@@ -336,6 +338,12 @@ const styles = StyleSheet.create({
   section: {
     width: "100%",
     marginBottom: 24,
+  },
+  topActions: {
+    width: "100%",
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginBottom: 12,
   },
   sectionLabel: {
     fontSize: 13,
@@ -407,16 +415,14 @@ const styles = StyleSheet.create({
     color: "#999",
     fontWeight: "600",
   },
-  logoutButton: {
-    alignSelf: "flex-start",
+  topLogoutButton: {
     paddingVertical: 12,
-    paddingHorizontal: 24,
+    paddingHorizontal: 18,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#e00",
-    marginBottom: 40,
   },
-  logoutText: {
+  topLogoutText: {
     color: "#e00",
     fontWeight: "600",
   },
