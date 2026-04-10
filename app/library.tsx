@@ -1,4 +1,4 @@
-import { memo, useDeferredValue, useEffect, useState, startTransition } from "react";
+import { memo, useDeferredValue, useEffect, useMemo, useState, startTransition } from "react";
 import {
   View,
   TouchableOpacity,
@@ -12,8 +12,13 @@ import {
   loadPhotoEntries,
   PhotoEntry,
   subscribeToPhotoEntries,
-  getPhotoDisplayUri,
 } from "../lib/storage";
+import {
+  getPendingCapturedPhotos,
+  subscribeToPendingCapturedPhotos,
+  type PendingCapturedPhoto,
+} from "../lib/photo-ingest-manager";
+import { buildDisplayPhotos } from "../lib/display-photos";
 import { usePrefetchRoutes } from "../lib/use-fast-routes";
 import { useSmartBack } from "../lib/use-smart-back";
 import { useTapGuard } from "../lib/use-tap-guard";
@@ -24,20 +29,29 @@ const TILE_GAP = 2;
 const TILE_SIZE = (SCREEN_WIDTH - TILE_GAP * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
 
 const LibraryTile = memo(
-  function LibraryTile({ uri }: { uri: string }) {
+  function LibraryTile({ uri, pending }: { uri: string; pending: boolean }) {
     return (
       <TouchableOpacity style={styles.tile}>
         <Image source={{ uri }} style={styles.tileImage} />
+        {pending ? <View style={styles.pendingBadge} /> : null}
       </TouchableOpacity>
     );
   },
-  (previous, next) => previous.uri === next.uri
+  (previous, next) =>
+    previous.uri === next.uri && previous.pending === next.pending
 );
 
 export default function LibraryScreen() {
   const smartBack = useSmartBack("/camera");
   const [photos, setPhotos] = useState<PhotoEntry[]>(() => loadPhotoEntries());
-  const deferredPhotos = useDeferredValue(photos);
+  const [pendingPhotos, setPendingPhotos] = useState<PendingCapturedPhoto[]>(() =>
+    getPendingCapturedPhotos()
+  );
+  const displayPhotos = useMemo(
+    () => buildDisplayPhotos(photos, pendingPhotos),
+    [pendingPhotos, photos]
+  );
+  const deferredPhotos = useDeferredValue(displayPhotos);
   const guardTap = useTapGuard(180);
 
   usePrefetchRoutes(["/camera"]);
@@ -46,6 +60,14 @@ export default function LibraryScreen() {
     return subscribeToPhotoEntries((entries) => {
       startTransition(() => {
         setPhotos(entries);
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeToPendingCapturedPhotos((entries) => {
+      startTransition(() => {
+        setPendingPhotos(entries);
       });
     });
   }, []);
@@ -67,13 +89,13 @@ export default function LibraryScreen() {
         maxToRenderPerBatch={24}
         windowSize={5}
         removeClippedSubviews
-        keyExtractor={(item) => item.cidHash}
+        keyExtractor={(item) => item.key}
         contentContainerStyle={styles.grid}
         ListEmptyComponent={
           <Text style={styles.emptyText}>No photos yet.</Text>
         }
         renderItem={({ item }) => (
-          <LibraryTile uri={getPhotoDisplayUri(item)} />
+          <LibraryTile uri={item.uri} pending={item.pending} />
         )}
       />
     </View>
@@ -115,6 +137,15 @@ const styles = StyleSheet.create({
   tileImage: {
     width: "100%",
     height: "100%",
+  },
+  pendingBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#0A84FF",
   },
   emptyText: {
     color: "#666",

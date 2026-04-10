@@ -1,4 +1,4 @@
-import { memo, useDeferredValue, useEffect, useRef, useState, startTransition } from "react";
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, startTransition } from "react";
 import {
   View,
   TouchableOpacity,
@@ -16,9 +16,14 @@ import {
   loadPhotoEntries,
   PhotoEntry,
   subscribeToPhotoEntries,
-  getPhotoDisplayUri,
 } from "../lib/storage";
 import { log } from "../lib/logger";
+import {
+  getPendingCapturedPhotos,
+  subscribeToPendingCapturedPhotos,
+  type PendingCapturedPhoto,
+} from "../lib/photo-ingest-manager";
+import { buildDisplayPhotos, type DisplayPhoto } from "../lib/display-photos";
 import { useFastRoutes, usePrefetchRoutes } from "../lib/use-fast-routes";
 import { useSmartBack } from "../lib/use-smart-back";
 import { useTapGuard } from "../lib/use-tap-guard";
@@ -50,10 +55,12 @@ const GalleryThumb = memo(
   function GalleryThumb({
     uri,
     isActive,
+    pending,
     onPress,
   }: {
     uri: string;
     isActive: boolean;
+    pending: boolean;
     onPress: () => void;
   }) {
     return (
@@ -62,11 +69,14 @@ const GalleryThumb = memo(
         style={[styles.thumb, isActive && styles.thumbActive]}
       >
         <Image source={{ uri }} style={styles.thumbImage} />
+        {pending ? <View style={styles.pendingThumbBadge} /> : null}
       </TouchableOpacity>
     );
   },
   (previous, next) =>
-    previous.uri === next.uri && previous.isActive === next.isActive
+    previous.uri === next.uri &&
+    previous.isActive === next.isActive &&
+    previous.pending === next.pending
 );
 
 export default function GalleryScreen() {
@@ -74,13 +84,20 @@ export default function GalleryScreen() {
   const smartBack = useSmartBack("/camera");
   const useNativeDriver = Platform.OS !== "web";
   const [photos, setPhotos] = useState<PhotoEntry[]>(() => loadPhotoEntries());
-  const deferredPhotos = useDeferredValue(photos);
+  const [pendingPhotos, setPendingPhotos] = useState<PendingCapturedPhoto[]>(() =>
+    getPendingCapturedPhotos()
+  );
+  const displayPhotos = useMemo(
+    () => buildDisplayPhotos(photos, pendingPhotos),
+    [pendingPhotos, photos]
+  );
+  const deferredPhotos = useDeferredValue(displayPhotos);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showUI, setShowUI] = useState(true);
   const mainListRef = useRef<FlatList>(null);
   const thumbListRef = useRef<FlatList>(null);
   const currentIndexRef = useRef(0);
-  const photosRef = useRef<PhotoEntry[]>([]);
+  const photosRef = useRef<DisplayPhoto[]>([]);
   const uiOpacity = useRef(new Animated.Value(1)).current;
   const mountedAtRef = useRef(Date.now());
   const readyLoggedRef = useRef(false);
@@ -95,6 +112,14 @@ export default function GalleryScreen() {
     return subscribeToPhotoEntries((entries) => {
       startTransition(() => {
         setPhotos(entries);
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeToPendingCapturedPhotos((entries) => {
+      startTransition(() => {
+        setPendingPhotos(entries);
       });
     });
   }, []);
@@ -224,7 +249,7 @@ export default function GalleryScreen() {
             windowSize={3}
             removeClippedSubviews
             showsHorizontalScrollIndicator={false}
-            keyExtractor={(item) => item.cidHash}
+            keyExtractor={(item) => item.key}
             style={styles.mainList}
             onMomentumScrollEnd={onMainScrollEnd}
             getItemLayout={(_, index) => ({
@@ -232,9 +257,7 @@ export default function GalleryScreen() {
               offset: SCREEN_WIDTH * index,
               index,
             })}
-            renderItem={({ item }) => (
-              <GallerySlide uri={getPhotoDisplayUri(item)} onPress={toggleUI} />
-            )}
+            renderItem={({ item }) => <GallerySlide uri={item.uri} onPress={toggleUI} />}
           />
 
           {/* Top bar */}
@@ -294,8 +317,9 @@ export default function GalleryScreen() {
               }}
               renderItem={({ item, index }) => (
                 <GalleryThumb
-                  uri={getPhotoDisplayUri(item)}
+                  uri={item.uri}
                   isActive={currentIndex === index}
+                  pending={item.pending}
                   onPress={() => {
                     jumpToPhoto(index);
                     syncThumbScroll(index);
@@ -390,6 +414,15 @@ const styles = StyleSheet.create({
   thumbImage: {
     width: "100%",
     height: "100%",
+  },
+  pendingThumbBadge: {
+    position: "absolute",
+    top: 2,
+    right: 2,
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#0A84FF",
   },
   center: {
     flex: 1,

@@ -12,6 +12,10 @@ type PendingCapturedPhotoJob = {
   extension: string;
   createdAt: number;
 };
+
+export type PendingCapturedPhoto = PendingCapturedPhotoJob & {
+  key: string;
+};
 const INGEST_DEBOUNCE_MS = 1500;
 const INGEST_RETRY_DELAY_MS = 5000;
 
@@ -19,6 +23,7 @@ let jobQueue: PendingCapturedPhotoJob[] | null = null;
 let runningPromise: Promise<void> | null = null;
 let scheduledTimer: ReturnType<typeof setTimeout> | null = null;
 let cancelScheduledRun: (() => void) | null = null;
+const listeners = new Set<(queue: PendingCapturedPhoto[]) => void>();
 
 function getPendingCaptureDir(): Directory {
   return new Directory(Paths.document, "pending-captures");
@@ -32,6 +37,20 @@ function ensurePendingCaptureDir(): void {
   const pendingCaptureDir = getPendingCaptureDir();
   if (!pendingCaptureDir.exists) {
     pendingCaptureDir.create({ intermediates: true });
+  }
+}
+
+function toPendingCapturedPhoto(job: PendingCapturedPhotoJob): PendingCapturedPhoto {
+  return {
+    ...job,
+    key: `${job.createdAt}:${job.capturedAt}:${job.uri}`,
+  };
+}
+
+function emitQueueSnapshot(queue: PendingCapturedPhotoJob[]): void {
+  const snapshot = queue.map(toPendingCapturedPhoto);
+  for (const listener of listeners) {
+    listener(snapshot);
   }
 }
 
@@ -66,6 +85,7 @@ function readQueue(): PendingCapturedPhotoJob[] {
 function writeQueue(queue: PendingCapturedPhotoJob[]): void {
   jobQueue = [...queue];
   writeDeferredText(getPendingCaptureFile(), JSON.stringify(jobQueue));
+  emitQueueSnapshot(jobQueue);
 }
 
 function scheduleRun(delayMs: number): void {
@@ -180,4 +200,18 @@ export async function resumePendingPhotoIngest(): Promise<void> {
   }
 
   scheduleRun(0);
+}
+
+export function getPendingCapturedPhotos(): PendingCapturedPhoto[] {
+  return readQueue().map(toPendingCapturedPhoto);
+}
+
+export function subscribeToPendingCapturedPhotos(
+  listener: (queue: PendingCapturedPhoto[]) => void
+): () => void {
+  listeners.add(listener);
+  listener(getPendingCapturedPhotos());
+  return () => {
+    listeners.delete(listener);
+  };
 }
