@@ -6,6 +6,7 @@ import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
 const PRIVATE_KEY_STORE = "nostr_private_key";
+let lastMerkleRootCreatedAt = 0;
 
 // On web, SecureStore isn't available — fall back to localStorage
 const storage = {
@@ -94,6 +95,9 @@ export async function publishMerkleRoot(
   rootKey?: string
 ): Promise<void> {
   const pubkeyHex = getPublicKey(privateKey);
+  const now = Math.floor(Date.now() / 1000);
+  const createdAt = Math.max(now, lastMerkleRootCreatedAt + 1);
+  lastMerkleRootCreatedAt = createdAt;
   const tags: string[][] = [
     ["d", "photos"],
     ["hash", rootHash],
@@ -108,7 +112,7 @@ export async function publishMerkleRoot(
   const event = finalizeEvent(
     {
       kind: 30078,
-      created_at: Math.floor(Date.now() / 1000),
+      created_at: createdAt,
       content: "",
       tags,
     },
