@@ -13,7 +13,6 @@ import {
 import { Image } from "expo-image";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { File, Paths } from "expo-file-system/next";
-import * as MediaLibrary from "expo-media-library";
 import { useRouter } from "expo-router";
 import {
   getLocalCachePathForEntry,
@@ -31,8 +30,6 @@ export default function CameraScreen() {
   const router = useRouter();
   const cameraRef = useRef<CameraView>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const [mediaPermission, requestMediaPermission] =
-    MediaLibrary.usePermissions();
   const [taking, setTaking] = useState(false);
   const [recording, setRecording] = useState(false);
   const [ready, setReady] = useState(false);
@@ -45,14 +42,13 @@ export default function CameraScreen() {
   const lastTap = useRef<number>(0);
 
   const cameraGranted = cameraPermission?.granted ?? false;
-  const mediaGranted = mediaPermission?.granted ?? false;
 
   useEffect(() => {
-    if (cameraGranted && mediaGranted) {
+    if (cameraGranted) {
       setReady(true);
       loadLastMedia();
     }
-  }, [cameraGranted, mediaGranted]);
+  }, [cameraGranted]);
 
   // Pulse animation for recording indicator
   useEffect(() => {
@@ -91,7 +87,7 @@ export default function CameraScreen() {
   }
 
   // Still loading permission status
-  if (!cameraPermission || !mediaPermission) {
+  if (!cameraPermission) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#FFD60A" />
@@ -103,12 +99,10 @@ export default function CameraScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.permText}>
-          We need camera and photo library access to take and save photos.
+          We need camera access to take and save photos.
         </Text>
         <Text style={styles.statusText}>
           Camera: {cameraGranted ? "Granted" : "Not granted"}
-          {"\n"}
-          Photos: {mediaGranted ? "Granted" : "Not granted"}
         </Text>
         <TouchableOpacity
           style={styles.permButton}
@@ -118,16 +112,12 @@ export default function CameraScreen() {
               if (!camResult.granted) {
                 camResult = await requestCameraPermission();
               }
-              let mediaResult = mediaPermission;
-              if (!mediaResult.granted) {
-                mediaResult = await requestMediaPermission();
-              }
-              if (camResult.granted && mediaResult.granted) {
+              if (camResult.granted) {
                 setReady(true);
               } else {
                 Alert.alert(
                   "Permissions Required",
-                  "Please enable Camera and Photos access in your phone's Settings for Expo Go.",
+                  "Please enable Camera access in your phone's Settings.",
                   [
                     { text: "Cancel", style: "cancel" },
                     {

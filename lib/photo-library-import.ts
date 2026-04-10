@@ -9,6 +9,8 @@ import type { PublishMerkleRootResult } from "./nostr";
 const IMPORT_PUBLISH_BATCH_SIZE = 10;
 const IMPORT_PAGE_SIZE = 200;
 
+export type ImportLibraryMode = "selected" | "all";
+
 export type ImportLibraryPhase =
   | "checking-permissions"
   | "selecting"
@@ -73,8 +75,14 @@ async function loadAccessiblePhotoAssets(): Promise<MediaLibrary.Asset[]> {
 
 export async function importPhotoLibrary(
   privateKey: Uint8Array,
-  onProgress?: (progress: ImportLibraryProgress) => void
+  options?: {
+    mode?: ImportLibraryMode;
+    onProgress?: (progress: ImportLibraryProgress) => void;
+  }
 ): Promise<ImportLibraryResult> {
+  const mode = options?.mode || "all";
+  const onProgress = options?.onProgress;
+
   if (Platform.OS !== "ios") {
     return {
       status: "unsupported",
@@ -100,7 +108,7 @@ export async function importPhotoLibrary(
 
   if (!permission.granted) {
     permission = await MediaLibrary.requestPermissionsAsync();
-  } else if (permission.accessPrivileges === "limited") {
+  } else if (permission.accessPrivileges === "limited" && mode === "selected") {
     emitProgress(onProgress, {
       phase: "selecting",
       total: 0,
@@ -118,6 +126,23 @@ export async function importPhotoLibrary(
     } catch (error: any) {
       log("[IMPORT] Limited-library picker unavailable:", error?.message);
     }
+  } else if (permission.accessPrivileges === "limited" && mode === "all") {
+    permission = await MediaLibrary.requestPermissionsAsync();
+    if (permission.accessPrivileges === "limited") {
+      return {
+        status: "failed",
+        total: 0,
+        processed: 0,
+        imported: 0,
+        skipped: 0,
+        failed: 0,
+        accessPrivileges: "limited",
+        reason:
+          "Photos access is still limited. To import your whole library, switch this app to All Photos in iPhone Settings.",
+      };
+    }
+  } else if (permission.accessPrivileges === "limited") {
+    permission = await MediaLibrary.getPermissionsAsync();
   }
 
   const accessPrivileges =

@@ -37,6 +37,13 @@
           "microphonePermission": "Allow Nostr Photos to access your microphone for video recording",
           "recordAudioAndroid": true
         }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Nostr Photos to access your photos so you can import selected photos or your full library into your Nostr photo archive.",
+          "savePhotosPermission": "Allow Nostr Photos to save media when needed."
+        }
       ]
     ]
   }
