@@ -11,7 +11,7 @@ import {
   ActionSheetIOS,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { loadPrivateKey, deletePrivateKey, getNpub } from "../lib/nostr";
+import { loadPrivateKey, deletePrivateKey, getNpub, getNsec } from "../lib/nostr";
 import { clearAllData } from "../lib/storage";
 import {
   type ImportLibraryProgress,
@@ -27,14 +27,17 @@ import {
 export default function SettingsScreen() {
   const router = useRouter();
   const [npub, setNpub] = useState<string | null>(null);
+  const [nsec, setNsec] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [secretCopied, setSecretCopied] = useState(false);
   const [importSnapshot, setImportSnapshot] = useState(getPhotoImportSnapshot());
 
   useEffect(() => {
     loadPrivateKey().then((key) => {
       if (key) {
         setNpub(getNpub(key));
+        setNsec(getNsec(key));
       }
       setLoading(false);
     });
@@ -58,6 +61,40 @@ export default function SettingsScreen() {
     } catch {
       Alert.alert("Copy", npub);
     }
+  }
+
+  async function copyText(value: string) {
+    if (Platform.OS === "web") {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    const Clipboard = await import("expo-clipboard");
+    await Clipboard.setStringAsync(value);
+  }
+
+  function handleCopyNsec() {
+    if (!nsec) return;
+
+    Alert.alert(
+      "Copy Private Key",
+      "Anyone with this nsec can control your account. Copy it only if you trust where you're pasting it.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Copy nsec",
+          onPress: async () => {
+            try {
+              await copyText(nsec);
+              setSecretCopied(true);
+              setTimeout(() => setSecretCopied(false), 2000);
+            } catch {
+              Alert.alert("Private Key", nsec);
+            }
+          },
+        },
+      ]
+    );
   }
 
   function handleLogout() {
@@ -281,6 +318,18 @@ export default function SettingsScreen() {
         </Text>
       </View>
 
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Private Key</Text>
+        <TouchableOpacity style={styles.secretButton} onPress={handleCopyNsec}>
+          <Text style={styles.secretButtonText}>
+            {secretCopied ? "Copied nsec" : "Copy nsec for Iris"}
+          </Text>
+        </TouchableOpacity>
+        <Text style={styles.secretHint}>
+          This copies your private key to the clipboard so you can log in elsewhere.
+        </Text>
+      </View>
+
       <View style={styles.spacer} />
 
       <TouchableOpacity
@@ -398,6 +447,24 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
     fontSize: 15,
+  },
+  secretButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "#111",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  secretButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  secretHint: {
+    marginTop: 8,
+    fontSize: 13,
+    color: "#666",
+    lineHeight: 18,
   },
   spacer: {
     flex: 1,

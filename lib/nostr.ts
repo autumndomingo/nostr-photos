@@ -430,6 +430,11 @@ export function getNpub(privateKey: Uint8Array): string {
   return npubEncode(pubHex);
 }
 
+// Get the nsec for a private key
+export function getNsec(privateKey: Uint8Array): string {
+  return nsecEncode(privateKey);
+}
+
 // Get the public key hex for a private key
 export function getPublicKeyHex(privateKey: Uint8Array): string {
   return getPublicKey(privateKey);
