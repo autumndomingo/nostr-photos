@@ -16,6 +16,7 @@ import {
   resumePendingPhotoImport,
   subscribeToPhotoImport,
 } from "../lib/photo-import-manager";
+import { resumePendingPhotoRootRemoteSync } from "../lib/photo-remote-sync";
 
 export default function RootLayout() {
   useEffect(() => {
@@ -35,6 +36,7 @@ export default function RootLayout() {
         ensureIrisCompatiblePhotoLibrary(privateKey).catch(() => {});
       });
 
+      resumePendingPhotoRootRemoteSync().catch(() => {});
       resumePendingPhotoImport().catch(() => {});
     };
 
@@ -42,6 +44,7 @@ export default function RootLayout() {
 
     const appStateSubscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active") {
+        resumePendingPhotoRootRemoteSync().catch(() => {});
         resumePendingPhotoImport().catch(() => {});
       }
     });

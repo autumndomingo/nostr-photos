@@ -22,6 +22,7 @@ import {
 } from "../lib/storage";
 import { loadPrivateKey } from "../lib/nostr";
 import { ingestPhotoBytes } from "../lib/photo-sync";
+import { queuePhotoRootRemoteSync } from "../lib/photo-remote-sync";
 import { log } from "../lib/logger";
 
 type ZoomLevel = 0.5 | 1 | 2 | 3;
@@ -188,7 +189,8 @@ export default function CameraScreen() {
       const result = await ingestPhotoBytes(privateKey, photoBytes, {
         capturedAt,
         extension: "jpg",
-        publishToNostr: true,
+        syncToBlossom: false,
+        publishToNostr: false,
       });
 
       if (dest.exists) {
@@ -205,32 +207,9 @@ export default function CameraScreen() {
         return;
       }
 
-      if (!result.remoteSynced) {
-        log("[PHOTO] Blossom sync incomplete; skipping Nostr publish for now");
-        return;
-      }
-
       const entries = loadPhotoEntries();
-      if (result.publishResult?.success) {
-        log(
-          "[PHOTO] Nostr confirmed on",
-          result.publishResult.confirmedRelays.length,
-          "relay(s)"
-        );
-        log(
-          "[PHOTO] Done! Root:",
-          result.publishResult.rootHash.slice(0, 16) + "...",
-          "Photos:",
-          entries.length
-        );
-      } else if (result.publishResult) {
-        log(
-          "[PHOTO] Nostr publish pending retry:",
-          `accepted=${result.publishResult.acceptedRelays.length}`,
-          `confirmed=${result.publishResult.confirmedRelays.length}`,
-          result.publishResult.reason || ""
-        );
-      }
+      log("[PHOTO] Saved locally. Photos:", entries.length);
+      queuePhotoRootRemoteSync("camera");
     } catch (e: any) {
       log("[PHOTO] Upload error:", e?.message);
     }
