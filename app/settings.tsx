@@ -392,7 +392,7 @@ const styles = StyleSheet.create({
     width: "100%",
     flexDirection: "row",
     justifyContent: "flex-end",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   sectionLabel: {
     fontSize: 13,
@@ -483,15 +483,16 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   topLogoutButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: "#e00",
   },
   topLogoutText: {
     color: "#e00",
     fontWeight: "600",
+    fontSize: 12,
   },
   button: {
     backgroundColor: "#7B2FF2",
