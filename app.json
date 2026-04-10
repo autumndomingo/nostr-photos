@@ -44,6 +44,12 @@
           "photosPermission": "Allow Nostr Photos to access your photos so you can import selected photos or your full library into your Nostr photo archive.",
           "savePhotosPermission": "Allow Nostr Photos to save media when needed."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Nostr Photos to let you choose photos to import into your Nostr photo archive."
+        }
       ]
     ]
   }

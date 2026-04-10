@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import { File } from "expo-file-system/next";
 import * as MediaLibrary from "expo-media-library";
+import * as ImagePicker from "expo-image-picker";
 import { ingestPhotoBytes, publishPhotoRoot } from "./photo-sync";
 import { log } from "./logger";
 import { loadPhotoEntries } from "./storage";
@@ -50,6 +51,208 @@ function emitProgress(
   progress: ImportLibraryProgress
 ): void {
   onProgress?.(progress);
+}
+
+function getCapturedAtFromExif(exif?: Record<string, any> | null): number | undefined {
+  if (!exif) return undefined;
+
+  const rawValue =
+    exif.DateTimeOriginal ||
+    exif.DateTimeDigitized ||
+    exif.DateTime ||
+    exif.CreationDate ||
+    exif.creationDate;
+
+  if (!rawValue) return undefined;
+  if (typeof rawValue === "number") {
+    return rawValue > 10_000_000_000 ? rawValue : rawValue * 1000;
+  }
+  if (typeof rawValue !== "string") return undefined;
+
+  const normalized = rawValue
+    .trim()
+    .replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3")
+    .replace(" ", "T");
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+async function importSelectedPhotoAssets(
+  privateKey: Uint8Array,
+  pickedAssets: ImagePicker.ImagePickerAsset[],
+  onProgress?: (progress: ImportLibraryProgress) => void
+): Promise<ImportLibraryResult> {
+  let processed = 0;
+  let imported = 0;
+  let skipped = 0;
+  let failed = 0;
+  let insertedSinceLastPublish = 0;
+  let lastPublishResult: PublishMerkleRootResult | null = null;
+
+  emitProgress(onProgress, {
+    phase: "importing",
+    total: pickedAssets.length,
+    processed,
+    imported,
+    skipped,
+    failed,
+  });
+
+  for (const asset of pickedAssets) {
+    emitProgress(onProgress, {
+      phase: "importing",
+      total: pickedAssets.length,
+      processed,
+      imported,
+      skipped,
+      failed,
+      currentAssetName: asset.fileName || asset.assetId || asset.uri,
+    });
+
+    try {
+      const bytes = await new File(asset.uri).bytes();
+      const ingestResult = await ingestPhotoBytes(privateKey, bytes, {
+        capturedAt: getCapturedAtFromExif(asset.exif) || Date.now(),
+        sourceAssetId: asset.assetId || undefined,
+        extension: asset.fileName || asset.mimeType || asset.uri,
+        publishToNostr: false,
+      });
+
+      if (ingestResult.duplicate) {
+        skipped += 1;
+      } else {
+        imported += 1;
+        insertedSinceLastPublish += 1;
+      }
+
+      processed += 1;
+
+      if (!ingestResult.duplicate && !ingestResult.remoteSynced) {
+        failed += 1;
+        return {
+          status: "failed",
+          total: pickedAssets.length,
+          processed,
+          imported,
+          skipped,
+          failed,
+          publishResult: lastPublishResult,
+          reason: "A Blossom upload failed before the root could be published.",
+        };
+      }
+
+      if (insertedSinceLastPublish >= IMPORT_PUBLISH_BATCH_SIZE) {
+        emitProgress(onProgress, {
+          phase: "publishing",
+          total: pickedAssets.length,
+          processed,
+          imported,
+          skipped,
+          failed,
+          currentAssetName: asset.fileName || asset.assetId || asset.uri,
+        });
+
+        lastPublishResult = await publishPhotoRoot(privateKey);
+        insertedSinceLastPublish = 0;
+      }
+    } catch (error: any) {
+      processed += 1;
+      failed += 1;
+      log("[IMPORT] Failed", asset.fileName || asset.assetId || asset.uri, error?.message || error);
+    }
+  }
+
+  if (insertedSinceLastPublish > 0) {
+    emitProgress(onProgress, {
+      phase: "publishing",
+      total: pickedAssets.length,
+      processed,
+      imported,
+      skipped,
+      failed,
+    });
+
+    lastPublishResult = await publishPhotoRoot(privateKey);
+  }
+
+  emitProgress(onProgress, {
+    phase: "complete",
+    total: pickedAssets.length,
+    processed,
+    imported,
+    skipped,
+    failed,
+  });
+
+  return {
+    status: "completed",
+    total: pickedAssets.length,
+    processed,
+    imported,
+    skipped,
+    failed,
+    publishResult: lastPublishResult,
+  };
+}
+
+export async function importSelectedPhotosFromPicker(
+  privateKey: Uint8Array,
+  onProgress?: (progress: ImportLibraryProgress) => void
+): Promise<ImportLibraryResult> {
+  if (Platform.OS !== "ios") {
+    return {
+      status: "unsupported",
+      total: 0,
+      processed: 0,
+      imported: 0,
+      skipped: 0,
+      failed: 0,
+      reason: "Selected-photo import is iOS-only for now.",
+    };
+  }
+
+  emitProgress(onProgress, {
+    phase: "selecting",
+    total: 0,
+    processed: 0,
+    imported: 0,
+    skipped: 0,
+    failed: 0,
+    message: "Choose photos, then tap Done.",
+  });
+
+  const pickerResult = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ["images"],
+    allowsMultipleSelection: true,
+    selectionLimit: 0,
+    orderedSelection: true,
+    quality: 1,
+    exif: true,
+    legacy: false,
+    ...(Platform.OS === "ios" ? { shouldDownloadFromNetwork: true as const } : {}),
+  });
+
+  if (pickerResult.canceled || !pickerResult.assets || pickerResult.assets.length === 0) {
+    emitProgress(onProgress, {
+      phase: "cancelled",
+      total: 0,
+      processed: 0,
+      imported: 0,
+      skipped: 0,
+      failed: 0,
+    });
+
+    return {
+      status: "cancelled",
+      total: 0,
+      processed: 0,
+      imported: 0,
+      skipped: 0,
+      failed: 0,
+    };
+  }
+
+  return await importSelectedPhotoAssets(privateKey, pickerResult.assets, onProgress);
 }
 
 async function loadAccessiblePhotoAssets(): Promise<MediaLibrary.Asset[]> {
