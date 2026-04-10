@@ -91,14 +91,36 @@ export default function SettingsScreen() {
           `Imported ${result.imported} photos, skipped ${result.skipped}, failed ${result.failed}.`
       );
     } else if (result.status === "completed") {
-      const publishMessage = result.publishResult?.success
-        ? "Latest root confirmed on Nostr."
-        : "Latest root is queued for retry if relay confirmation lags.";
+      Alert.alert("uplaoding done");
+    }
+  }
 
-      Alert.alert(
-        "Import Complete",
-        `Imported ${result.imported} photos, skipped ${result.skipped}, failed ${result.failed}.\n\n${publishMessage}`
-      );
+  function getProgressPercent(progress: ImportLibraryProgress | null, isImporting: boolean): number {
+    if (!progress) return 0;
+
+    switch (progress.phase) {
+      case "checking-permissions":
+        return 8;
+      case "selecting":
+        return 14;
+      case "loading":
+        return 24;
+      case "importing": {
+        const total = Math.max(progress.total, 1);
+        return 24 + (progress.processed / total) * 66;
+      }
+      case "publishing": {
+        if (progress.total <= 0) return 94;
+        const total = Math.max(progress.total, 1);
+        return 90 + (progress.processed / total) * 8;
+      }
+      case "complete":
+        return 100;
+      case "error":
+      case "cancelled":
+        return progress.total > 0 ? Math.min(99, (progress.processed / progress.total) * 100) : 0;
+      default:
+        return isImporting ? 8 : 0;
     }
   }
 
@@ -228,13 +250,8 @@ export default function SettingsScreen() {
   }
 
   const totalToProcess = importProgress?.total || 0;
-  const progressRatio =
-    totalToProcess > 0
-      ? importProgress!.processed / totalToProcess
-      : importProgress && importing
-        ? 0.12
-        : 0;
-  const progressWidth = `${Math.max(progressRatio * 100, importing ? 12 : 0)}%` as const;
+  const progressPercent = getProgressPercent(importProgress, importing);
+  const progressWidth = `${progressPercent}%` as const;
   const progressLabel = importProgress
     ? importProgress.phase === "checking-permissions"
       ? "Waiting for Photos access"
