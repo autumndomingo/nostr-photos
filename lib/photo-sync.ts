@@ -1,4 +1,5 @@
 import { toHex, type CID } from "@hashtree/core";
+import { File } from "expo-file-system/next";
 import {
   addFileToTree,
   getRootKeyHex,
@@ -17,6 +18,7 @@ import {
   getNextPhotoSequence,
   hasLegacyPhotoNames,
   loadPhotoEntries,
+  parsePhotoSequence,
   replacePhotoEntries,
   type PhotoEntry,
 } from "./storage";
@@ -24,6 +26,11 @@ import {
   publishMerkleRoot,
   type PublishMerkleRootResult,
 } from "./nostr";
+import * as MediaLibrary from "expo-media-library";
+import {
+  isIrisWebCompatiblePhotoEntry,
+  normalizePhotoUriForIris,
+} from "./photo-compat";
 
 let photoIngestQueue: Promise<unknown> = Promise.resolve();
 
@@ -55,6 +62,14 @@ export type EnsureSequentialNamingResult = {
   publishResult?: PublishMerkleRootResult | null;
 };
 
+export type EnsureIrisCompatiblePhotoLibraryResult = {
+  changed: boolean;
+  repaired: number;
+  failed: number;
+  remoteSynced: boolean;
+  publishResult?: PublishMerkleRootResult | null;
+};
+
 function queuePhotoIngest<T>(task: () => Promise<T>): Promise<T> {
   const result = photoIngestQueue.catch(() => {}).then(task);
   photoIngestQueue = result.then(
@@ -82,6 +97,35 @@ function writePhotoCache(entry: PhotoEntry, bytes: Uint8Array): void {
   if (!cacheFile.exists) {
     cacheFile.write(bytes);
   }
+}
+
+async function resolveRepairPhotoUri(
+  entry: PhotoEntry
+): Promise<{ uri: string; fileName: string } | null> {
+  const cachedFile = getLocalCachePathForEntry(entry);
+  if (cachedFile.exists) {
+    return {
+      uri: cachedFile.uri,
+      fileName: entry.name,
+    };
+  }
+
+  if (!entry.sourceAssetId) {
+    return null;
+  }
+
+  const assetInfo = await MediaLibrary.getAssetInfoAsync(entry.sourceAssetId, {
+    shouldDownloadFromNetwork: true,
+  });
+
+  if (!assetInfo.localUri) {
+    return null;
+  }
+
+  return {
+    uri: assetInfo.localUri,
+    fileName: assetInfo.filename || entry.name,
+  };
 }
 
 export async function publishPhotoRoot(
@@ -165,6 +209,128 @@ export async function ensureSequentialPhotoLibrary(
 
     return {
       changed: true,
+      remoteSynced: true,
+      publishResult,
+    };
+  });
+}
+
+export async function ensureIrisCompatiblePhotoLibrary(
+  privateKey: Uint8Array
+): Promise<EnsureIrisCompatiblePhotoLibraryResult> {
+  return await queuePhotoIngest(async () => {
+    const entries = loadPhotoEntries();
+    const repairTargets = entries
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry }) => !isIrisWebCompatiblePhotoEntry(entry));
+
+    if (repairTargets.length === 0) {
+      return {
+        changed: false,
+        repaired: 0,
+        failed: 0,
+        remoteSynced: true,
+        publishResult: null,
+      };
+    }
+
+    const repairedEntries = [...entries];
+    let repaired = 0;
+    let failed = 0;
+
+    for (const { entry, index } of repairTargets) {
+      try {
+        const source = await resolveRepairPhotoUri(entry);
+        if (!source) {
+          throw new Error("No repair source is available for this photo.");
+        }
+
+        const normalized = await normalizePhotoUriForIris({
+          uri: source.uri,
+          fileName: source.fileName,
+        });
+        const bytes = await new File(normalized.uri).bytes();
+        const { fileCid, size } = await stageFileInTree(privateKey, bytes);
+        const previousCacheFile = getLocalCachePathForEntry(entry);
+        const sequence = entry.sequence || parsePhotoSequence(entry.name) || index + 1;
+
+        const nextEntry: PhotoEntry = {
+          ...entry,
+          name: buildSequentialPhotoFileName(sequence, normalized.extension),
+          cidHash: toHex(fileCid.hash),
+          cidKey: fileCid.key ? toHex(fileCid.key) : undefined,
+          size,
+          sequence,
+          cacheExtension: normalized.extension,
+        };
+
+        repairedEntries[index] = nextEntry;
+        writePhotoCache(nextEntry, bytes);
+
+        const nextCacheFile = getLocalCachePathForEntry(nextEntry);
+        if (previousCacheFile.exists && previousCacheFile.uri !== nextCacheFile.uri) {
+          previousCacheFile.delete();
+        }
+
+        repaired += 1;
+        log(`[PHOTO] Repaired ${entry.name} for Iris compatibility`);
+      } catch (error: any) {
+        failed += 1;
+        log("[PHOTO] Repair failed", entry.name, error?.message || error);
+      }
+    }
+
+    if (repaired === 0) {
+      return {
+        changed: false,
+        repaired,
+        failed,
+        remoteSynced: true,
+        publishResult: null,
+      };
+    }
+
+    replacePhotoEntries(repairedEntries);
+
+    const rebuildResult = await rebuildPhotoRoot(
+      privateKey,
+      repairedEntries.map((entry) => ({
+        name: entry.name,
+        cid: entryToCid(entry),
+        size: entry.size,
+      }))
+    );
+
+    if (!rebuildResult) {
+      return {
+        changed: false,
+        repaired,
+        failed,
+        remoteSynced: true,
+        publishResult: null,
+      };
+    }
+
+    if (!rebuildResult.remoteSynced) {
+      log("[PHOTO] Iris compatibility repair updated local root but Blossom sync failed");
+      return {
+        changed: true,
+        repaired,
+        failed,
+        remoteSynced: false,
+        publishResult: null,
+      };
+    }
+
+    const publishResult = await publishPhotoRoot(privateKey, {
+      rootCid: rebuildResult.rootCid,
+      entryCount: repairedEntries.length,
+    });
+
+    return {
+      changed: true,
+      repaired,
+      failed,
       remoteSynced: true,
       publishResult,
     };

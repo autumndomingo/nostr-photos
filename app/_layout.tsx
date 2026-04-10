@@ -8,7 +8,10 @@ import {
   loadPrivateKey,
   retryPendingMerkleRootPublish,
 } from "../lib/nostr";
-import { ensureSequentialPhotoLibrary } from "../lib/photo-sync";
+import {
+  ensureIrisCompatiblePhotoLibrary,
+  ensureSequentialPhotoLibrary,
+} from "../lib/photo-sync";
 import {
   resumePendingPhotoImport,
   subscribeToPhotoImport,
@@ -16,16 +19,20 @@ import {
 
 export default function RootLayout() {
   useEffect(() => {
-    retryPendingMerkleRootPublish().catch(() => {});
-    loadPrivateKey()
-      .then((privateKey) => {
+    const initialize = async () => {
+      try {
+        await retryPendingMerkleRootPublish();
+        const privateKey = await loadPrivateKey();
         if (privateKey) {
-          return ensureSequentialPhotoLibrary(privateKey);
+          await ensureSequentialPhotoLibrary(privateKey);
+          await ensureIrisCompatiblePhotoLibrary(privateKey);
         }
-      })
-      .catch(() => {});
+      } catch {}
 
-    resumePendingPhotoImport().catch(() => {});
+      resumePendingPhotoImport().catch(() => {});
+    };
+
+    initialize().catch(() => {});
 
     const appStateSubscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active") {
