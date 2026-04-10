@@ -2,10 +2,6 @@ import "../lib/fetch-polyfill";
 import "../lib/crypto-polyfill";
 import "react-native-get-random-values";
 import { Stack } from "expo-router";
-import { clearAllData } from "../lib/storage";
-
-// One-time wipe of old data to start fresh with hashtree
-// clearAllData();
 
 export default function RootLayout() {
   return (

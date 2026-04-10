@@ -11,6 +11,7 @@ import {
 import { useRouter } from "expo-router";
 import { loadPrivateKey, deletePrivateKey, getNpub } from "../lib/nostr";
 import { clearAllData } from "../lib/storage";
+import { runUploadTest } from "../lib/upload-test";
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -93,6 +94,19 @@ export default function SettingsScreen() {
           Share with friends so they can send you photos
         </Text>
       </View>
+
+      <TouchableOpacity
+        style={[styles.clearButton, { borderColor: "#7B2FF2", marginTop: 20 }]}
+        onPress={async () => {
+          Alert.alert("Running...", "Check logs for results");
+          const key = await loadPrivateKey();
+          if (!key) { Alert.alert("Error", "No key"); return; }
+          const result = await runUploadTest(key);
+          Alert.alert("Test Result", result);
+        }}
+      >
+        <Text style={[styles.clearText, { color: "#7B2FF2" }]}>Run Upload Test</Text>
+      </TouchableOpacity>
 
       <View style={styles.spacer} />
 
