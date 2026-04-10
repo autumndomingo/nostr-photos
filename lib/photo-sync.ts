@@ -6,6 +6,7 @@ import {
   loadRootCID,
   rebuildPhotoRoot,
   stageFileInTree,
+  syncRootToBlossom,
 } from "./hashtree";
 import { log } from "./logger";
 import {
@@ -43,6 +44,7 @@ export type IngestPhotoBytesOptions = {
   capturedAt?: number;
   sourceAssetId?: string;
   extension?: string;
+  syncToBlossom?: boolean;
   publishToNostr?: boolean;
 };
 
@@ -66,6 +68,11 @@ export type EnsureIrisCompatiblePhotoLibraryResult = {
   changed: boolean;
   repaired: number;
   failed: number;
+  remoteSynced: boolean;
+  publishResult?: PublishMerkleRootResult | null;
+};
+
+export type FlushPhotoRootResult = {
   remoteSynced: boolean;
   publishResult?: PublishMerkleRootResult | null;
 };
@@ -148,6 +155,37 @@ export async function publishPhotoRoot(
     entryCount,
     rootKeyHex
   );
+}
+
+export async function flushPhotoRootToRemote(
+  privateKey: Uint8Array,
+  options?: PublishPhotoRootOptions
+): Promise<FlushPhotoRootResult> {
+  return await queuePhotoIngest(async () => {
+    const rootCid = options?.rootCid || loadRootCID();
+    if (!rootCid) {
+      return {
+        remoteSynced: true,
+        publishResult: null,
+      };
+    }
+
+    const remoteSynced = await syncRootToBlossom(privateKey, rootCid);
+    if (!remoteSynced) {
+      return {
+        remoteSynced: false,
+        publishResult: null,
+      };
+    }
+
+    return {
+      remoteSynced: true,
+      publishResult: await publishPhotoRoot(privateKey, {
+        rootCid,
+        entryCount: options?.entryCount,
+      }),
+    };
+  });
 }
 
 export async function ensureSequentialPhotoLibrary(
@@ -366,7 +404,9 @@ export async function ingestPhotoBytes(
     const extension = extractFileExtension(options.extension || "photo.jpg");
     const sequence = getNextPhotoSequence(existingEntries);
     const fileName = buildSequentialPhotoFileName(sequence, extension);
-    const addResult = await addFileToTree(privateKey, fileCid, size, fileName);
+    const addResult = await addFileToTree(privateKey, fileCid, size, fileName, {
+      syncToBlossom: options.syncToBlossom,
+    });
 
     const entry = addPhotoEntry(fileName, fileCid, size, {
       capturedAt: options.capturedAt,

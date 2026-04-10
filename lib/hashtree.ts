@@ -36,6 +36,7 @@ let _blossomStore: BlossomStore | null = null;
 let _tree: HashTree | null = null;
 let _currentPrivateKey: Uint8Array | null = null;
 let treeMutationQueue: Promise<unknown> = Promise.resolve();
+const BLOSSOM_PUSH_CONCURRENCY = 6;
 
 function createSigner(privateKey: Uint8Array): BlossomSigner {
   return async (draft) => {
@@ -143,7 +144,7 @@ async function pushRootToBlossom(
   rootCid: CID
 ): Promise<boolean> {
   const pushResult = await tree.push(rootCid, blossomStore, {
-    concurrency: 4,
+    concurrency: BLOSSOM_PUSH_CONCURRENCY,
     onBlock: (hash, status, error) => {
       if (status === "error") {
         log(`[PUSH] ${toHex(hash).slice(0, 12)}... ${status}: ${error?.message}`);
@@ -171,11 +172,15 @@ export async function addFileToTree(
   privateKey: Uint8Array,
   fileCid: CID,
   size: number,
-  fileName: string
+  fileName: string,
+  options?: {
+    syncToBlossom?: boolean;
+  }
 ): Promise<{ rootCid: CID; remoteSynced: boolean }> {
   return queueTreeMutation(async () => {
     const { tree, blossomStore } = getHashTree(privateKey);
     const currentRoot = loadRootCID();
+    const shouldSyncToBlossom = options?.syncToBlossom !== false;
 
     let rootCid: CID;
 
@@ -199,8 +204,25 @@ export async function addFileToTree(
 
     return {
       rootCid,
-      remoteSynced: await pushRootToBlossom(tree, blossomStore, rootCid),
+      remoteSynced: shouldSyncToBlossom
+        ? await pushRootToBlossom(tree, blossomStore, rootCid)
+        : false,
     };
+  });
+}
+
+export async function syncRootToBlossom(
+  privateKey: Uint8Array,
+  rootCid?: CID | null
+): Promise<boolean> {
+  const targetRoot = rootCid || loadRootCID();
+  if (!targetRoot) {
+    return true;
+  }
+
+  return await queueTreeMutation(async () => {
+    const { tree, blossomStore } = getHashTree(privateKey);
+    return await pushRootToBlossom(tree, blossomStore, targetRoot);
   });
 }
 

@@ -2,13 +2,13 @@ import { Platform } from "react-native";
 import { File } from "expo-file-system/next";
 import * as MediaLibrary from "expo-media-library";
 import * as ImagePicker from "expo-image-picker";
-import { ingestPhotoBytes, publishPhotoRoot } from "./photo-sync";
+import { flushPhotoRootToRemote, ingestPhotoBytes } from "./photo-sync";
 import { log } from "./logger";
 import { loadPhotoEntries } from "./storage";
 import type { PublishMerkleRootResult } from "./nostr";
 import { normalizePhotoUriForIris } from "./photo-compat";
 
-const IMPORT_PUBLISH_BATCH_SIZE = 10;
+const IMPORT_REMOTE_SYNC_BATCH_SIZE = 25;
 const IMPORT_PAGE_SIZE = 200;
 
 export type ImportLibraryMode = "selected" | "all";
@@ -168,6 +168,7 @@ export async function importSelectedPhotoAssets(
         capturedAt: asset.capturedAt || Date.now(),
         sourceAssetId: asset.assetId || undefined,
         extension,
+        syncToBlossom: false,
         publishToNostr: false,
       });
 
@@ -180,21 +181,7 @@ export async function importSelectedPhotoAssets(
 
       processed += 1;
 
-      if (!ingestResult.duplicate && !ingestResult.remoteSynced) {
-        failed += 1;
-        return {
-          status: "failed",
-          total: pickedAssets.length,
-          processed,
-          imported,
-          skipped,
-          failed,
-          publishResult: lastPublishResult,
-          reason: "A Blossom upload failed before the root could be published.",
-        };
-      }
-
-      if (insertedSinceLastPublish >= IMPORT_PUBLISH_BATCH_SIZE) {
+      if (insertedSinceLastPublish >= IMPORT_REMOTE_SYNC_BATCH_SIZE) {
         emitProgress(onProgress, {
           phase: "publishing",
           total: pickedAssets.length,
@@ -205,7 +192,22 @@ export async function importSelectedPhotoAssets(
           currentAssetName: asset.fileName || asset.assetId || asset.uri,
         });
 
-        lastPublishResult = await publishPhotoRoot(privateKey);
+        const flushResult = await flushPhotoRootToRemote(privateKey);
+        if (!flushResult.remoteSynced) {
+          failed += 1;
+          return {
+            status: "failed",
+            total: pickedAssets.length,
+            processed,
+            imported,
+            skipped,
+            failed,
+            publishResult: lastPublishResult,
+            reason: "A Blossom upload failed before the root could be published.",
+          };
+        }
+
+        lastPublishResult = flushResult.publishResult || null;
         insertedSinceLastPublish = 0;
       }
     } catch (error: any) {
@@ -225,7 +227,22 @@ export async function importSelectedPhotoAssets(
       failed,
     });
 
-    lastPublishResult = await publishPhotoRoot(privateKey);
+    const flushResult = await flushPhotoRootToRemote(privateKey);
+    if (!flushResult.remoteSynced) {
+      failed += 1;
+      return {
+        status: "failed",
+        total: pickedAssets.length,
+        processed,
+        imported,
+        skipped,
+        failed,
+        publishResult: lastPublishResult,
+        reason: "A Blossom upload failed before the root could be published.",
+      };
+    }
+
+    lastPublishResult = flushResult.publishResult || null;
   }
 
   emitProgress(onProgress, {
@@ -503,6 +520,7 @@ export async function importPhotoLibrary(
         capturedAt: asset.creationTime || assetInfo.creationTime || Date.now(),
         sourceAssetId: asset.id,
         extension,
+        syncToBlossom: false,
         publishToNostr: false,
       });
 
@@ -515,13 +533,7 @@ export async function importPhotoLibrary(
 
       processed += 1;
 
-      if (!ingestResult.duplicate && !ingestResult.remoteSynced) {
-        failed += 1;
-        failureReason = "A Blossom upload failed before the root could be published.";
-        break;
-      }
-
-      if (insertedSinceLastPublish >= IMPORT_PUBLISH_BATCH_SIZE) {
+      if (insertedSinceLastPublish >= IMPORT_REMOTE_SYNC_BATCH_SIZE) {
         emitProgress(onProgress, {
           phase: "publishing",
           total: assetsToImport.length,
@@ -533,7 +545,14 @@ export async function importPhotoLibrary(
           accessPrivileges,
         });
 
-        lastPublishResult = await publishPhotoRoot(privateKey);
+        const flushResult = await flushPhotoRootToRemote(privateKey);
+        if (!flushResult.remoteSynced) {
+          failed += 1;
+          failureReason = "A Blossom upload failed before the root could be published.";
+          break;
+        }
+
+        lastPublishResult = flushResult.publishResult || null;
         insertedSinceLastPublish = 0;
       }
     } catch (error: any) {
@@ -554,7 +573,13 @@ export async function importPhotoLibrary(
       accessPrivileges,
     });
 
-    lastPublishResult = await publishPhotoRoot(privateKey);
+    const flushResult = await flushPhotoRootToRemote(privateKey);
+    if (!flushResult.remoteSynced) {
+      failed += 1;
+      failureReason = "A Blossom upload failed before the root could be published.";
+    } else {
+      lastPublishResult = flushResult.publishResult || null;
+    }
   }
 
   if (failureReason) {
