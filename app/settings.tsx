@@ -198,6 +198,7 @@ export default function SettingsScreen() {
 
   const totalToProcess = importProgress?.total || 0;
   const progressPercent = getProgressPercent(importProgress, importing);
+  const progressPercentText = `${Math.max(0, Math.min(100, Math.round(progressPercent)))}%`;
   const progressWidth = `${progressPercent}%` as const;
   const progressLabel = importProgress
     ? importProgress.phase === "checking-permissions"
@@ -301,7 +302,10 @@ export default function SettingsScreen() {
 
       {importProgress ? (
         <View style={styles.progressDock}>
-          <Text style={styles.progressTitle}>{progressLabel}</Text>
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressTitle}>{progressLabel}</Text>
+            <Text style={styles.progressPercent}>{progressPercentText}</Text>
+          </View>
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: progressWidth }]} />
           </View>
@@ -447,7 +451,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#0A84FF",
+  },
+  progressHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
     marginBottom: 10,
+  },
+  progressPercent: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#0A84FF",
+    minWidth: 44,
+    textAlign: "right",
   },
   progressTrack: {
     height: 8,
