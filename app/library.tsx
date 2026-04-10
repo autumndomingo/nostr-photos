@@ -9,7 +9,11 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { useRouter, useFocusEffect } from "expo-router";
-import { loadPhotoEntries, PhotoEntry, getLocalCachePath } from "../lib/storage";
+import {
+  getLocalCachePathForEntry,
+  loadPhotoEntries,
+  PhotoEntry,
+} from "../lib/storage";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const NUM_COLUMNS = 3;
@@ -27,7 +31,7 @@ export default function LibraryScreen() {
   );
 
   function getPhotoUri(entry: PhotoEntry): string {
-    const cached = getLocalCachePath(entry.cidHash);
+    const cached = getLocalCachePathForEntry(entry);
     if (cached.exists) {
       return cached.uri;
     }

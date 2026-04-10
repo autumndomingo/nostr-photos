@@ -13,7 +13,11 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { useRouter, useFocusEffect } from "expo-router";
-import { loadPhotoEntries, PhotoEntry, getLocalCachePath } from "../lib/storage";
+import {
+  getLocalCachePathForEntry,
+  loadPhotoEntries,
+  PhotoEntry,
+} from "../lib/storage";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const THUMB_HEIGHT = 40;
@@ -46,7 +50,7 @@ export default function GalleryScreen() {
   );
 
   function getPhotoUri(entry: PhotoEntry): string {
-    const cached = getLocalCachePath(entry.cidHash);
+    const cached = getLocalCachePathForEntry(entry);
     if (cached.exists) {
       return cached.uri;
     }
