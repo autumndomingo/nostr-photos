@@ -216,8 +216,27 @@ export default function CameraScreen() {
           const rootKeyHex = getRootKeyHex(rootCid);
           const entries = loadPhotoEntries();
           try {
-            await publishMerkleRoot(privateKey, rootHex, entries.length, rootKeyHex);
-            log("[PHOTO] Done! Root:", rootHex.slice(0, 16) + "...", "Photos:", entries.length);
+            const publishResult = await publishMerkleRoot(
+              privateKey,
+              rootHex,
+              entries.length,
+              rootKeyHex
+            );
+            if (publishResult.success) {
+              log(
+                "[PHOTO] Nostr confirmed on",
+                publishResult.confirmedRelays.length,
+                "relay(s)"
+              );
+              log("[PHOTO] Done! Root:", rootHex.slice(0, 16) + "...", "Photos:", entries.length);
+            } else {
+              log(
+                "[PHOTO] Nostr publish pending retry:",
+                `accepted=${publishResult.acceptedRelays.length}`,
+                `confirmed=${publishResult.confirmedRelays.length}`,
+                publishResult.reason || ""
+              );
+            }
           } catch (pubErr: any) {
             log("[PHOTO] Publish failed:", pubErr?.message);
           }
