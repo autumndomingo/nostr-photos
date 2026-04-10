@@ -1,14 +1,15 @@
-import { InteractionManager } from "react-native";
 import { File, Paths } from "expo-file-system/next";
-import { toHex } from "@hashtree/core";
+import { cid, fromHex, toHex } from "@hashtree/core";
 import { loadRootCID } from "./hashtree";
 import { loadPrivateKey } from "./nostr";
 import { flushPhotoRootToRemote } from "./photo-sync";
 import { log } from "./logger";
 import { loadPhotoEntries } from "./storage";
+import { scheduleAfterInteractions } from "./cooperative";
 
 type PendingPhotoRemoteSyncJob = {
   rootHash: string;
+  rootKey?: string;
   entryCount: number;
   updatedAt: number;
   reason?: string;
@@ -24,6 +25,7 @@ const REMOTE_SYNC_RETRY_DELAY_MS = 6000;
 let currentJob: PendingPhotoRemoteSyncJob | null = null;
 let scheduledTimer: ReturnType<typeof setTimeout> | null = null;
 let runningPromise: Promise<void> | null = null;
+let cancelScheduledRun: (() => void) | null = null;
 
 function readPendingRemoteSyncJob(): PendingPhotoRemoteSyncJob | null {
   try {
@@ -67,6 +69,7 @@ function snapshotPendingRemoteSyncJob(
 
   return {
     rootHash: toHex(rootCid.hash),
+    rootKey: rootCid.key ? toHex(rootCid.key) : undefined,
     entryCount: loadPhotoEntries().length,
     updatedAt: Date.now(),
     reason,
@@ -77,10 +80,12 @@ function schedulePendingRun(delayMs: number): void {
   if (scheduledTimer) {
     clearTimeout(scheduledTimer);
   }
+  cancelScheduledRun?.();
+  cancelScheduledRun = null;
 
   scheduledTimer = setTimeout(() => {
     scheduledTimer = null;
-    InteractionManager.runAfterInteractions(() => {
+    cancelScheduledRun = scheduleAfterInteractions(() => {
       void runPendingPhotoRemoteSync();
     });
   }, delayMs);
@@ -112,7 +117,12 @@ async function runPendingPhotoRemoteSync(): Promise<void> {
       job.reason ? `reason=${job.reason}` : ""
     );
 
+    const rootCid = cid(
+      fromHex(job.rootHash),
+      job.rootKey ? fromHex(job.rootKey) : undefined
+    );
     const result = await flushPhotoRootToRemote(privateKey, {
+      rootCid,
       entryCount: job.entryCount,
     });
 

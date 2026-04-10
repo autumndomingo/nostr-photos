@@ -32,6 +32,7 @@ import {
   isIrisWebCompatiblePhotoEntry,
   normalizePhotoUriForIris,
 } from "./photo-compat";
+import { yieldToUI } from "./cooperative";
 
 let photoIngestQueue: Promise<unknown> = Promise.resolve();
 
@@ -213,6 +214,7 @@ export async function ensureSequentialPhotoLibrary(
     });
 
     replacePhotoEntries(renamedEntries);
+    await yieldToUI();
 
     const rebuildResult = await rebuildPhotoRoot(
       privateKey,
@@ -316,6 +318,8 @@ export async function ensureIrisCompatiblePhotoLibrary(
         failed += 1;
         log("[PHOTO] Repair failed", entry.name, error?.message || error);
       }
+
+      await yieldToUI();
     }
 
     if (repaired === 0) {
@@ -329,6 +333,7 @@ export async function ensureIrisCompatiblePhotoLibrary(
     }
 
     replacePhotoEntries(repairedEntries);
+    await yieldToUI();
 
     const rebuildResult = await rebuildPhotoRoot(
       privateKey,

@@ -7,6 +7,7 @@ import { log } from "./logger";
 import { loadPhotoEntries } from "./storage";
 import type { PublishMerkleRootResult } from "./nostr";
 import { normalizePhotoUriForIris } from "./photo-compat";
+import { yieldToUI } from "./cooperative";
 
 const IMPORT_REMOTE_SYNC_BATCH_SIZE = 25;
 const IMPORT_PAGE_SIZE = 200;
@@ -215,6 +216,8 @@ export async function importSelectedPhotoAssets(
       failed += 1;
       log("[IMPORT] Failed", asset.fileName || asset.assetId || asset.uri, error?.message || error);
     }
+
+    await yieldToUI();
   }
 
   if (insertedSinceLastPublish > 0) {
@@ -350,6 +353,7 @@ async function loadAccessiblePhotoAssets(): Promise<MediaLibrary.Asset[]> {
     assets.push(...page.assets);
     hasNextPage = page.hasNextPage;
     after = page.endCursor || undefined;
+    await yieldToUI();
   }
 
   return assets;
@@ -560,6 +564,8 @@ export async function importPhotoLibrary(
       failed += 1;
       log("[IMPORT] Failed", asset.filename, error?.message || error);
     }
+
+    await yieldToUI();
   }
 
   if (!failureReason && insertedSinceLastPublish > 0) {

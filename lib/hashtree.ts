@@ -35,6 +35,7 @@ let _fileStore: FileStore | null = null;
 let _blossomStore: BlossomStore | null = null;
 let _tree: HashTree | null = null;
 let _currentPrivateKey: Uint8Array | null = null;
+let _cachedRootCid: CID | null = null;
 let treeMutationQueue: Promise<unknown> = Promise.resolve();
 const BLOSSOM_PUSH_CONCURRENCY = 6;
 
@@ -122,17 +123,22 @@ export function saveRootCID(rootCid: CID): void {
     hash: toHex(rootCid.hash),
     key: rootCid.key ? toHex(rootCid.key) : undefined,
   };
+  _cachedRootCid = rootCid;
   ROOT_FILE.write(JSON.stringify(data));
 }
 
 // Load the saved root CID
 export function loadRootCID(): CID | null {
+  if (_cachedRootCid) {
+    return _cachedRootCid;
+  }
   if (!ROOT_FILE.exists) return null;
   try {
     const text = ROOT_FILE.textSync();
     const data = JSON.parse(text);
     if (!data.hash) return null;
-    return cid(fromHex(data.hash), data.key ? fromHex(data.key) : undefined);
+    _cachedRootCid = cid(fromHex(data.hash), data.key ? fromHex(data.key) : undefined);
+    return _cachedRootCid;
   } catch {
     return null;
   }

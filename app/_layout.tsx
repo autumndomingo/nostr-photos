@@ -2,7 +2,7 @@ import "../lib/fetch-polyfill";
 import "../lib/crypto-polyfill";
 import "react-native-get-random-values";
 import { useEffect } from "react";
-import { Alert, AppState, InteractionManager } from "react-native";
+import { Alert, AppState } from "react-native";
 import { Stack } from "expo-router";
 import {
   loadPrivateKey,
@@ -17,35 +17,63 @@ import {
   subscribeToPhotoImport,
 } from "../lib/photo-import-manager";
 import { resumePendingPhotoRootRemoteSync } from "../lib/photo-remote-sync";
+import { scheduleAfterInteractions } from "../lib/cooperative";
 
 export default function RootLayout() {
   useEffect(() => {
     let cancelled = false;
     let importCompletionShown = false;
+    const cancelDeferredTasks = new Set<() => void>();
+
+    const deferTask = (delayMs: number, task: () => void) => {
+      let cancelTask = () => {};
+      cancelTask = scheduleAfterInteractions(() => {
+        cancelDeferredTasks.delete(cancelTask);
+        if (!cancelled) {
+          task();
+        }
+      }, delayMs);
+      cancelDeferredTasks.add(cancelTask);
+    };
 
     const initialize = async () => {
       const privateKey = await loadPrivateKey().catch(() => null);
 
-      InteractionManager.runAfterInteractions(() => {
-        if (cancelled || !privateKey) {
-          return;
-        }
-
-        retryPendingMerkleRootPublish(privateKey).catch(() => {});
-        ensureSequentialPhotoLibrary(privateKey).catch(() => {});
-        ensureIrisCompatiblePhotoLibrary(privateKey).catch(() => {});
+      deferTask(500, () => {
+        resumePendingPhotoRootRemoteSync().catch(() => {});
       });
 
-      resumePendingPhotoRootRemoteSync().catch(() => {});
-      resumePendingPhotoImport().catch(() => {});
+      deferTask(1500, () => {
+        resumePendingPhotoImport().catch(() => {});
+      });
+
+      if (!privateKey) {
+        return;
+      }
+
+      deferTask(2500, () => {
+        retryPendingMerkleRootPublish(privateKey).catch(() => {});
+      });
+
+      deferTask(4500, () => {
+        ensureSequentialPhotoLibrary(privateKey).catch(() => {});
+      });
+
+      deferTask(9000, () => {
+        ensureIrisCompatiblePhotoLibrary(privateKey).catch(() => {});
+      });
     };
 
     initialize().catch(() => {});
 
     const appStateSubscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active") {
-        resumePendingPhotoRootRemoteSync().catch(() => {});
-        resumePendingPhotoImport().catch(() => {});
+        deferTask(300, () => {
+          resumePendingPhotoRootRemoteSync().catch(() => {});
+        });
+        deferTask(1200, () => {
+          resumePendingPhotoImport().catch(() => {});
+        });
       }
     });
 
@@ -68,6 +96,10 @@ export default function RootLayout() {
       cancelled = true;
       appStateSubscription.remove();
       unsubscribeImport();
+      for (const cancelTask of cancelDeferredTasks) {
+        cancelTask();
+      }
+      cancelDeferredTasks.clear();
     };
   }, []);
 

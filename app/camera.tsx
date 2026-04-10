@@ -378,7 +378,11 @@ export default function CameraScreen() {
 
           <TouchableOpacity
             style={styles.galleryCircle}
-            onPress={() => { if (!recording) router.push("/gallery"); }}
+            onPress={() => {
+              if (recording) return;
+              log("[NAV] Opening gallery");
+              router.push("/gallery");
+            }}
           >
             {lastMediaUri ? (
               <Image

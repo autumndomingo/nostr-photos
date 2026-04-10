@@ -18,6 +18,7 @@ import {
   PhotoEntry,
   subscribeToPhotoEntries,
 } from "../lib/storage";
+import { log } from "../lib/logger";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const THUMB_HEIGHT = 40;
@@ -36,6 +37,8 @@ export default function GalleryScreen() {
   const currentIndexRef = useRef(0);
   const photosRef = useRef<PhotoEntry[]>([]);
   const uiOpacity = useRef(new Animated.Value(1)).current;
+  const mountedAtRef = useRef(Date.now());
+  const readyLoggedRef = useRef(false);
 
   photosRef.current = photos;
   currentIndexRef.current = currentIndex;
@@ -58,6 +61,10 @@ export default function GalleryScreen() {
   }, []);
 
   useEffect(() => {
+    log("[NAV] Gallery mounted");
+  }, []);
+
+  useEffect(() => {
     if (photos.length === 0) {
       setCurrentIndex(0);
       return;
@@ -67,6 +74,18 @@ export default function GalleryScreen() {
       setCurrentIndex(photos.length - 1);
     }
   }, [currentIndex, photos.length]);
+
+  useEffect(() => {
+    if (readyLoggedRef.current) {
+      return;
+    }
+
+    readyLoggedRef.current = true;
+    log(
+      `[NAV] Gallery ready in ${Date.now() - mountedAtRef.current}ms`,
+      `photos=${photos.length}`
+    );
+  }, [photos.length]);
 
   function jumpToPhoto(index: number) {
     const total = photosRef.current.length;

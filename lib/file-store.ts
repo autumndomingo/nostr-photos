@@ -37,7 +37,7 @@ export class FileStore implements Store {
     try {
       const f = hashToFile(hash);
       if (!f.exists) return null;
-      return f.bytesSync();
+      return await f.bytes();
     } catch {
       return null;
     }
