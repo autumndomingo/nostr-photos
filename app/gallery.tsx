@@ -246,29 +246,33 @@ export default function GalleryScreen() {
               opacity: dragOpacity,
             },
           ]}
-          {...swipeResponder.panHandlers}
         >
           {/* Full screen photo viewer */}
-          <FlatList
-            ref={mainListRef}
-            data={deferredPhotos}
-            horizontal
-            pagingEnabled
-            initialNumToRender={1}
-            maxToRenderPerBatch={1}
-            windowSize={3}
-            removeClippedSubviews
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(item) => item.key}
+          <Animated.View
             style={styles.mainList}
-            onMomentumScrollEnd={onMainScrollEnd}
-            getItemLayout={(_, index) => ({
-              length: SCREEN_WIDTH,
-              offset: SCREEN_WIDTH * index,
-              index,
-            })}
-            renderItem={({ item }) => <GallerySlide uri={item.uri} onPress={toggleUI} />}
-          />
+            {...swipeResponder.panHandlers}
+          >
+            <FlatList
+              ref={mainListRef}
+              data={deferredPhotos}
+              horizontal
+              pagingEnabled
+              initialNumToRender={1}
+              maxToRenderPerBatch={1}
+              windowSize={3}
+              removeClippedSubviews
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item) => item.key}
+              style={styles.mainList}
+              onMomentumScrollEnd={onMainScrollEnd}
+              getItemLayout={(_, index) => ({
+                length: SCREEN_WIDTH,
+                offset: SCREEN_WIDTH * index,
+                index,
+              })}
+              renderItem={({ item }) => <GallerySlide uri={item.uri} onPress={toggleUI} />}
+            />
+          </Animated.View>
 
           {/* Top bar */}
           <Animated.View
@@ -293,52 +297,52 @@ export default function GalleryScreen() {
               style={[styles.bottomBar, { opacity: uiOpacity }]}
               pointerEvents={showUI ? "auto" : "none"}
             >
-            <FlatList
-              ref={thumbListRef}
-              data={deferredPhotos}
-              horizontal
-              initialNumToRender={8}
-              maxToRenderPerBatch={8}
-              updateCellsBatchingPeriod={16}
-              windowSize={4}
-              removeClippedSubviews
-              showsHorizontalScrollIndicator={false}
-              keyExtractor={(item) => "thumb_" + item.key}
-              contentContainerStyle={styles.thumbContent}
-              onScrollEndDrag={(e) => {
-                const offset = e.nativeEvent.contentOffset.x;
-                const centerIndex = Math.round(
-                  (offset + SCREEN_WIDTH / 2) / THUMB_TOTAL
-                );
-                const clamped = Math.max(
-                  0,
-                  Math.min(centerIndex, deferredPhotos.length - 1)
-                );
-                jumpToPhoto(clamped);
-              }}
-              onMomentumScrollEnd={(e) => {
-                const offset = e.nativeEvent.contentOffset.x;
-                const centerIndex = Math.round(
-                  (offset + SCREEN_WIDTH / 2) / THUMB_TOTAL
-                );
-                const clamped = Math.max(
-                  0,
-                  Math.min(centerIndex, deferredPhotos.length - 1)
-                );
-                jumpToPhoto(clamped);
-              }}
-              renderItem={({ item, index }) => (
-                <GalleryThumb
-                  uri={item.uri}
-                  isActive={currentIndex === index}
-                  pending={item.pending}
-                  onPress={() => {
-                    jumpToPhoto(index);
-                    syncThumbScroll(index);
-                  }}
-                />
-              )}
-            />
+              <FlatList
+                ref={thumbListRef}
+                data={deferredPhotos}
+                horizontal
+                initialNumToRender={8}
+                maxToRenderPerBatch={8}
+                updateCellsBatchingPeriod={16}
+                windowSize={4}
+                removeClippedSubviews
+                showsHorizontalScrollIndicator={false}
+                keyExtractor={(item) => "thumb_" + item.key}
+                contentContainerStyle={styles.thumbContent}
+                onScrollEndDrag={(e) => {
+                  const offset = e.nativeEvent.contentOffset.x;
+                  const centerIndex = Math.round(
+                    (offset + SCREEN_WIDTH / 2) / THUMB_TOTAL
+                  );
+                  const clamped = Math.max(
+                    0,
+                    Math.min(centerIndex, deferredPhotos.length - 1)
+                  );
+                  jumpToPhoto(clamped);
+                }}
+                onMomentumScrollEnd={(e) => {
+                  const offset = e.nativeEvent.contentOffset.x;
+                  const centerIndex = Math.round(
+                    (offset + SCREEN_WIDTH / 2) / THUMB_TOTAL
+                  );
+                  const clamped = Math.max(
+                    0,
+                    Math.min(centerIndex, deferredPhotos.length - 1)
+                  );
+                  jumpToPhoto(clamped);
+                }}
+                renderItem={({ item, index }) => (
+                  <GalleryThumb
+                    uri={item.uri}
+                    isActive={currentIndex === index}
+                    pending={item.pending}
+                    onPress={() => {
+                      jumpToPhoto(index);
+                      syncThumbScroll(index);
+                    }}
+                  />
+                )}
+              />
             </Animated.View>
           ) : null}
         </Animated.View>
@@ -389,6 +393,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.6)",
+    zIndex: 3,
   },
   backText: {
     color: "#fff",
@@ -408,6 +413,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingBottom: 30,
     backgroundColor: "rgba(0,0,0,0.6)",
+    zIndex: 3,
   },
   thumbContent: {
     paddingHorizontal: 4,

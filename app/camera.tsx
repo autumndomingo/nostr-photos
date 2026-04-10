@@ -231,18 +231,18 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Camera viewfinder — double tap anywhere to flip */}
-      <Pressable style={StyleSheet.absoluteFill} onPress={handleDoubleTap}>
-            <CameraView
-              ref={cameraRef}
-              style={styles.camera}
-              active={isFocused && ready}
-              facing={facing}
-              flash={flash}
-              zoom={zoomValue}
+      <CameraView
+        ref={cameraRef}
+        style={styles.camera}
+        active={isFocused && ready}
+        facing={facing}
+        flash={flash}
+        zoom={zoomValue}
           mode={mode === "video" ? "video" : "picture"}
-        />
-      </Pressable>
+      />
+
+      {/* Double-tap viewfinder area only, keep bottom controls outside this layer */}
+      <Pressable style={styles.viewfinderTapZone} onPress={handleDoubleTap} />
 
       {/* Recording indicator */}
       {recording && (
@@ -395,6 +395,11 @@ const styles = StyleSheet.create({
   camera: {
     ...StyleSheet.absoluteFillObject,
   },
+  viewfinderTapZone: {
+    ...StyleSheet.absoluteFillObject,
+    bottom: 170,
+    zIndex: 1,
+  },
   center: {
     flex: 1,
     justifyContent: "center",
@@ -431,6 +436,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 14,
     gap: 6,
+    zIndex: 3,
   },
   recordDot: {
     width: 10,
@@ -453,6 +459,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     paddingHorizontal: 24,
+    zIndex: 3,
   },
   topIcon: {
     fontSize: 24,
@@ -474,6 +481,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
     borderRadius: 20,
     padding: 3,
+    zIndex: 3,
   },
   zoomPill: {
     width: 38,
@@ -502,6 +510,7 @@ const styles = StyleSheet.create({
     right: 0,
     paddingBottom: 40,
     backgroundColor: "rgba(0,0,0,0.5)",
+    zIndex: 3,
   },
   modeRow: {
     flexDirection: "row",
