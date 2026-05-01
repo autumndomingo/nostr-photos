@@ -1,5 +1,5 @@
 import { usePathname, useRouter, type Href } from "expo-router";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { scheduleAfterInteractions } from "./cooperative";
 
 function sameRoute(pathname: string, href: Href): boolean {
@@ -12,11 +12,21 @@ function sameRoute(pathname: string, href: Href): boolean {
 
 export function usePrefetchRoutes(routes: readonly Href[], delayMs = 120): void {
   const router = useRouter();
+  const pathname = usePathname();
   const routeKey = routes.map((route) => String(route)).join("|");
 
   useEffect(() => {
+    const routesToPrefetch = routeKey
+      .split("|")
+      .filter(Boolean)
+      .filter((route) => !sameRoute(pathname, route as Href)) as Href[];
+
+    if (routesToPrefetch.length === 0) {
+      return;
+    }
+
     const cancel = scheduleAfterInteractions(() => {
-      for (const route of routes) {
+      for (const route of routesToPrefetch) {
         try {
           router.prefetch(route);
         } catch {}
@@ -24,7 +34,7 @@ export function usePrefetchRoutes(routes: readonly Href[], delayMs = 120): void 
     }, delayMs);
 
     return cancel;
-  }, [delayMs, routeKey, router, routes]);
+  }, [delayMs, pathname, routeKey, router]);
 }
 
 export function useFastRoutes() {
@@ -62,9 +72,12 @@ export function useFastRoutes() {
     [pathname, router]
   );
 
-  return {
-    navigateTo,
-    prefetchRoute,
-    replaceWith,
-  };
+  return useMemo(
+    () => ({
+      navigateTo,
+      prefetchRoute,
+      replaceWith,
+    }),
+    [navigateTo, prefetchRoute, replaceWith]
+  );
 }
