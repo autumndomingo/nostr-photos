@@ -36,6 +36,32 @@ npx expo start
 
 Scan the QR code with Expo Go (Android) or the Camera app (iOS).
 
+### Run directly on a connected iPhone
+
+Use this when Expo Go is not working. This installs and launches a native debug build from the command line; it does not require opening Xcode.
+
+```sh
+# Confirm the phone is connected.
+xcrun devicectl list devices
+
+# Get the physical device UDID that Expo accepts.
+xcrun xctrace list devices
+
+# Build and install the native app on the phone.
+npx expo run:ios --device <device-udid>
+
+# If the app opens to "No script URL provided", confirm Metro is running.
+curl http://localhost:8081/status
+
+# Relaunch the installed app directly.
+xcrun devicectl device process launch \
+  --device <device-udid> \
+  --terminate-existing \
+  com.anonymous.nostr-photos
+```
+
+On Justin's iPhone, `devicectl list devices` reported a CoreDevice identifier, but Expo needed the UDID from `xctrace list devices` instead: `00008140-001E54E90E6A801C`.
+
 ## Project layout
 
 ```
