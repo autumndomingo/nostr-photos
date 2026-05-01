@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   ScrollView,
   Platform,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import {
   createAccount,
   nsecToPrivateKey,
@@ -27,10 +27,12 @@ import { useTapGuard } from "../lib/use-tap-guard";
 
 export default function WelcomeScreen() {
   const router = useRouter();
+  const pathname = usePathname();
   const { prefetchRoute } = useFastRoutes();
   const [nsecInput, setNsecInput] = useState("");
   const [session, setSession] = useState(getSessionSnapshot());
   const [authBusy, setAuthBusy] = useState(false);
+  const redirectingToCamera = useRef(false);
   const guardTap = useTapGuard();
 
   usePrefetchRoutes(["/camera"]);
@@ -39,11 +41,22 @@ export default function WelcomeScreen() {
     ensureSessionLoaded().catch(() => {});
     return subscribeToSession((snapshot) => {
       setSession(snapshot);
-      if (snapshot.privateKey) {
-        router.replace("/camera");
-      }
     });
   }, []);
+
+  const hasKey = !!session.privateKey;
+
+  useEffect(() => {
+    if (pathname !== "/") {
+      redirectingToCamera.current = false;
+      return;
+    }
+
+    if (hasKey && !redirectingToCamera.current) {
+      redirectingToCamera.current = true;
+      router.replace("/camera");
+    }
+  }, [hasKey, pathname, router]);
 
   async function handleCreateAccount() {
     if (authBusy) return;
